@@ -7,7 +7,7 @@
 A native Windows desktop app for downloading photos, videos, and galleries from your favorite
 sites. No command line, no config files, no browser extensions to babysit.
 
-[![Version](https://img.shields.io/badge/version-3.0.0-blue?style=flat-square)](https://github.com/myousefg/Foldreel/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)](https://github.com/myousefg/Foldreel/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/myousefg/Foldreel/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/myousefg/Foldreel/total?style=flat-square&label=downloads)](https://github.com/myousefg/Foldreel/releases)

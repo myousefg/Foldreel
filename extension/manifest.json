@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Foldreel",
-  "version": "3.0.0",
+  "version": "1.0.0",
   "description": "Send the current tab or a link straight to Foldreel, running on this computer.",
   "icons": {
     "16": "icons/icon16.png",

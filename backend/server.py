@@ -144,7 +144,7 @@ DEFAULT_OUTPUT_DIR = (
     os.environ.get("FOLDREEL_DEFAULT_OUTPUT")
     or str(Path.home() / "Downloads" / "Foldreel")
 )
-APP_VERSION = "3.0.0"                                # single source at runtime
+APP_VERSION = "1.0.0"                                # single source at runtime
 
 
 def _abs_output(p: Optional[str]) -> str:
@@ -736,8 +736,21 @@ def _norm_range(v: str) -> str:
     return f"1-{v}" if re.fullmatch(r"\d+", v) else v
 
 
+def _normalize_url(url: str) -> str:
+    """Strip a single trailing slash from the path, not a bare domain. Some
+    extractors (Instagram's gallery-dl one included, even fully up to date)
+    build a next-page/tab request by appending straight onto whatever URL
+    they were given - a URL that already ends in "/" becomes ".../caeshymiaw//"
+    there, which 404s. "https://example.com/" (bare domain, no path) is left
+    alone since there's nothing to strip."""
+    if url.endswith("/") and not re.match(r"^https?://[^/]+/$", url):
+        return url[:-1]
+    return url
+
+
 def build_argv(url: str, settings: dict, options: Optional[dict] = None,
                simulate: bool = False, config_path: Optional[Path] = None) -> List[str]:
+    url = _normalize_url(url)
     options = options or {}
     argv = [gdl_bin(), "--config", str(config_path or CONFIG_PATH), "--config-ignore", "--no-colors"]
     if settings.get("rate_limit"):
@@ -864,6 +877,7 @@ _YTDLP_QUALITY_HEIGHT = {"1080": 1080, "720": 720, "480": 480, "360": 360}
 
 
 def build_ytdlp_argv(url: str, settings: dict, options: Optional[dict], print_to_path: str) -> List[str]:
+    url = _normalize_url(url)
     options = options or {}
     quality = str(options.get("quality") or "").strip()
     fmt = str(options.get("format") or "mp4").strip()

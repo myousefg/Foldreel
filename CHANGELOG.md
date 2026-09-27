@@ -3,7 +3,7 @@
 All notable changes to Foldreel are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [3.0.0] - 2026-09-27
+## [1.0.0] - 2026-09-27
 
 ### Changed
 - **Renamed from Grabbr to Foldreel.** The old name collided with an existing Mac/iOS app, a

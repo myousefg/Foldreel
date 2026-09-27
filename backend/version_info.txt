@@ -6,8 +6,8 @@
 
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(3, 0, 0, 0),
-    prodvers=(3, 0, 0, 0),
+    filevers=(1, 0, 0, 0),
+    prodvers=(1, 0, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -22,12 +22,12 @@ VSVersionInfo(
         [
           StringStruct(u'CompanyName',      u'Foldreel'),
           StringStruct(u'FileDescription',  u'Foldreel Backend Service'),
-          StringStruct(u'FileVersion',      u'3.0.0.0'),
+          StringStruct(u'FileVersion',      u'1.0.0.0'),
           StringStruct(u'InternalName',     u'foldreel-backend'),
           StringStruct(u'LegalCopyright',   u'Copyright \xa9 2026 Foldreel'),
           StringStruct(u'OriginalFilename', u'foldreel-backend.exe'),
           StringStruct(u'ProductName',      u'Foldreel'),
-          StringStruct(u'ProductVersion',   u'3.0.0'),
+          StringStruct(u'ProductVersion',   u'1.0.0'),
         ]
       )
     ]),

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  Loader2, Download, Check, RefreshCw, Trash2, ChevronDown, Puzzle, Copy, ShieldOff, Plus,
+  Loader2, Download, Check, RefreshCw, Trash2, ChevronDown, Puzzle, Copy, ShieldOff, Plus, Shield,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,12 @@ import { useSettings } from '@/context/SettingsProvider';
 import { extensionApi, presetsApi } from '@/lib/api';
 import { openExternal } from '@/lib/electron';
 import { snappy } from '@/lib/motion';
+
+// Set once the Chrome Web Store listing is live (Developer Dashboard -> the
+// item -> "Public URL" once it's approved and public); falls back to a direct
+// zip download until then.
+const CHROME_STORE_URL = '';
+const PRIVACY_POLICY_URL = 'https://claude.ai/artifact/4LTcHdrjn8U6VbaPUPqDNV';
 
 export default function Advanced() {
   const { t } = useI18n();
@@ -80,15 +86,24 @@ export default function Advanced() {
         )}
       >
         {!extConnected && (
-          <Row title={t('settings.extensionDownload')} desc={t('settings.extensionDownloadDesc')}>
+          <Row
+            title={t('settings.extensionDownload')}
+            desc={CHROME_STORE_URL ? t('settings.extensionDownloadStoreDesc') : t('settings.extensionDownloadDesc')}
+          >
             <Button
               variant="outline" size="sm"
-              onClick={() => openExternal('https://github.com/myousefg/Foldreel/releases/latest/download/Foldreel-Extension.zip')}
+              onClick={() => openExternal(CHROME_STORE_URL || 'https://github.com/myousefg/Foldreel/releases/latest/download/Foldreel-Extension.zip')}
             >
-              <Download className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('settings.extensionDownload')}
+              <Download className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />
+              {CHROME_STORE_URL ? t('settings.extensionDownloadStore') : t('settings.extensionDownload')}
             </Button>
           </Row>
         )}
+        <Row title={t('settings.extensionPrivacy')} desc={t('settings.extensionPrivacyDesc')}>
+          <Button variant="outline" size="sm" onClick={() => openExternal(PRIVACY_POLICY_URL)}>
+            <Shield className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('settings.extensionPrivacy')}
+          </Button>
+        </Row>
         {!extSecret ? (
           <Row title={t('settings.extensionEnable')} desc={t('settings.extensionEnableDesc')}>
             <Button size="sm" onClick={enableExtension} disabled={extBusy || extSecret === null}>

@@ -2,10 +2,12 @@
 
 # Foldreel
 
-### Paste a link. Foldreel grabs it.
+### Download. Convert. Rename. Watch. One app for your whole media library.
 
-A native Windows desktop app for downloading photos, videos, and galleries from your favorite
-sites. No command line, no config files, no browser extensions to babysit.
+A native Windows desktop app that handles media end to end: pull full albums and videos from
+your favorite sites, convert or compress anything you drop in, batch-rename files and folders
+into clean albums, and watch pages for new posts automatically. No command line, no config
+files, no juggling four different tools.
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)](https://github.com/myousefg/Foldreel/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/myousefg/Foldreel/releases/latest)
@@ -23,6 +25,13 @@ sites. No command line, no config files, no browser extensions to babysit.
 ---
 
 ## Features
+
+Four tools in one app, sharing the same queue, history, and settings:
+
+- **Download** full-resolution photos, videos, and galleries from 300+ sites.
+- **Convert** HEIC/MOV/anything to JPG/MP4/GIF, with quality and compression controls.
+- **Rename** files and folders in bulk, in whatever order you drag them into.
+- **Watch** a page on a schedule so new posts download themselves.
 
 - **Paste and go.** Drop in one link or a whole list, one per line. Each becomes its own job in
   the queue.

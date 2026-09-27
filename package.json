@@ -1,8 +1,8 @@
 {
   "name": "foldreel",
   "version": "1.0.0",
-  "description": "Foldreel - Desktop GUI for gallery-dl",
-  "author": "Mohammed Yousef Gumilar",
+  "description": "Foldreel - download, convert, rename, and watch your media, all in one app",
+  "author": "myousefg",
   "license": "MIT",
   "main": "electron/main.js",
   "scripts": {
@@ -18,7 +18,7 @@
   "build": {
     "appId": "com.foldreel.app",
     "productName": "Foldreel",
-    "copyright": "Copyright (C) 2026 Foldreel",
+    "copyright": "Copyright (C) 2026 myousefg",
     "directories": {
       "output": "dist"
     },

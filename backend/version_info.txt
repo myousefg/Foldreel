@@ -24,7 +24,7 @@ VSVersionInfo(
           StringStruct(u'FileDescription',  u'Foldreel Backend Service'),
           StringStruct(u'FileVersion',      u'1.0.0.0'),
           StringStruct(u'InternalName',     u'foldreel-backend'),
-          StringStruct(u'LegalCopyright',   u'Copyright \xa9 2026 Foldreel'),
+          StringStruct(u'LegalCopyright',   u'Copyright \xa9 2026 myousefg'),
           StringStruct(u'OriginalFilename', u'foldreel-backend.exe'),
           StringStruct(u'ProductName',      u'Foldreel'),
           StringStruct(u'ProductVersion',   u'1.0.0'),

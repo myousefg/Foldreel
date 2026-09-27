@@ -4,6 +4,7 @@ setlocal EnableDelayedExpansion
 :: ============================================================
 ::  Foldreel - Windows Build Script
 ::  Produces: dist\Foldreel-Setup-<VERSION>.exe + checksum.txt
+::            dist\Foldreel-Extension.zip
 ::
 ::  Non-interactive:  set FOLDREEL_NOPROMPT=1  (skips the pauses)
 :: ============================================================
@@ -71,16 +72,16 @@ if not errorlevel 1 (
 
 :: -- Step 0: bundled tools (gallery-dl, yt-dlp, ffmpeg, aria2c) ------------
 if not exist "%PROJECT_DIR%\bin\gallery-dl.exe" (
-    echo [0/4] Fetching bundled tools into bin\...
+    echo [0/5] Fetching bundled tools into bin\...
     powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_DIR%\scripts\fetch-bin-tools.ps1"
     if errorlevel 1 ( echo ERROR: could not populate bin\ & goto :die )
 ) else (
-    echo [0/4] bin\ tools present - skipping fetch.
+    echo [0/5] bin\ tools present - skipping fetch.
 )
 echo.
 
 :: -- Step 1: Python backend ---------------------------------
-echo [1/4] Building Python backend with PyInstaller...
+echo [1/5] Building Python backend with PyInstaller...
 cd /d "%PROJECT_DIR%\backend"
 %PY% -m pip install -r requirements.txt --quiet --disable-pip-version-check
 :: --log-level=WARN: PyInstaller's default INFO level prints a line for every
@@ -92,7 +93,7 @@ echo       Done. Output: backend\dist\foldreel-backend.exe
 echo.
 
 :: -- Step 2: React frontend --------------------------------
-echo [2/4] Building React frontend...
+echo [2/5] Building React frontend...
 cd /d "%PROJECT_DIR%\frontend"
 call yarn install --frozen-lockfile
 call yarn build
@@ -101,7 +102,7 @@ echo       Done. Output: frontend\build\
 echo.
 
 :: -- Step 3: electron-builder ------------------------------
-echo [3/4] Packaging installer with electron-builder...
+echo [3/5] Packaging installer with electron-builder...
 cd /d "%PROJECT_DIR%"
 call npm install --silent
 call npm run dist
@@ -114,7 +115,7 @@ echo       Done. Output: dist\%INSTALLER_NAME%
 echo.
 
 :: -- Step 4: SHA-256 checksum ------------------------------
-echo [4/4] Generating SHA-256 checksum...
+echo [4/5] Generating SHA-256 checksum...
 
 echo $src = "%INSTALLER_PATH%"                                       > "%PS_TEMP%"
 echo $out = "%CHECKSUM_PATH%"                                       >> "%PS_TEMP%"
@@ -123,6 +124,15 @@ echo [System.IO.File]::WriteAllText($out, "SHA256: " + $h + "  %INSTALLER_NAME%"
 echo Write-Host ("       SHA-256: " + $h)                           >> "%PS_TEMP%"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS_TEMP%"
 del "%PS_TEMP%"
+echo.
+
+:: -- Step 5: browser extension zip --------------------------
+echo [5/5] Packaging browser extension...
+set EXT_ZIP=%DIST_DIR%\Foldreel-Extension.zip
+powershell -NoProfile -Command "Compress-Archive -Path '%PROJECT_DIR%\extension\*' -DestinationPath '%EXT_ZIP%' -Force"
+if errorlevel 1 ( echo ERROR: extension packaging failed. & goto :die )
+if not exist "%EXT_ZIP%" ( echo ERROR: extension zip missing after packaging. & goto :die )
+echo       Done. Output: dist\Foldreel-Extension.zip
 
 :done
 del "%LOCK_FILE%" 2>nul
@@ -130,6 +140,7 @@ echo.
 echo =============================================
 echo   Build complete!
 echo   Installer : dist\%INSTALLER_NAME%
+echo   Extension : dist\Foldreel-Extension.zip
 echo =============================================
 echo.
 if not defined FOLDREEL_NOPROMPT pause

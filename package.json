@@ -1,0 +1,111 @@
+{
+  "name": "foldreel",
+  "version": "3.0.0",
+  "description": "Foldreel - Desktop GUI for gallery-dl",
+  "author": "Mohammed Yousef Gumilar",
+  "license": "MIT",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "concurrently \"cd frontend && yarn start\" \"wait-on http://localhost:3000 && electron .\"",
+    "start:prod": "electron .",
+    "build": "cd frontend && yarn build",
+    "build:backend": "cd backend && pyinstaller foldreel_backend.spec --clean",
+    "dist": "yarn build && electron-builder --win --x64",
+    "dist:store": "yarn build && electron-builder --win --x64 --config.win.target=appx",
+    "dist:mac": "yarn build && electron-builder --mac",
+    "dist:linux": "yarn build && electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.foldreel.app",
+    "productName": "Foldreel",
+    "copyright": "Copyright (C) 2026 Foldreel",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "frontend/build/**/*"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "myousefg",
+      "repo": "Foldreel"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/assets/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "artifactName": "Foldreel-Setup-${version}.exe",
+      "signtoolOptions": {
+        "publisherName": "Foldreel"
+      },
+      "extraResources": [
+        {
+          "from": "backend/dist/foldreel-backend.exe",
+          "to": "backend/foldreel-backend.exe"
+        },
+        {
+          "from": "bin/",
+          "to": "bin/",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ]
+    },
+    "appx": {
+      "applicationId": "Foldreel",
+      "identityName": "myousefg.Foldreel",
+      "publisher": "CN=901F8DFE-0C3D-41EB-B873-55B57C8DEF10",
+      "publisherDisplayName": "myousefg",
+      "displayName": "Foldreel",
+      "showNameOnTiles": true,
+      "backgroundColor": "#5B3E96"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true,
+      "uninstallDisplayName": "${productName}"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "electron/assets/icon.png",
+      "category": "public.app-category.utilities",
+      "extraResources": [
+        {
+          "from": "backend/dist/foldreel-backend",
+          "to": "backend/foldreel-backend"
+        }
+      ]
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Network",
+      "extraResources": [
+        {
+          "from": "backend/dist/foldreel-backend",
+          "to": "backend/foldreel-backend"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "wait-on": "^8.0.0"
+  }
+}

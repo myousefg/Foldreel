@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Build output
+dist/
+frontend/build/
+backend/build/
+backend/dist/
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+
+# Fetched at build time, not committed (see scripts/fetch-bin-tools.ps1)
+bin/
+
+# Build script lock file (scripts/build-exe.bat / scripts/clean.bat)
+.building
+
+# Editor / OS cruft
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local env overrides
+.env
+.env.local

@@ -434,7 +434,7 @@
     "done": "Done",
     "welcome": {
       "title": "Welcome to Foldreel",
-      "body": "Foldreel is a desktop front-end for gallery-dl. Paste a gallery, profile, or post URL and it pulls the full set of images and video. Quick tour of the basics."
+      "body": "Foldreel downloads, converts, renames, and watches your media - all in one app. Quick tour of the basics."
     },
     "dashboard": {
       "title": "Dashboard",
@@ -452,13 +452,17 @@
       "title": "Organize",
       "body": "Pick specific files or folders, drag them into the order you want, and rename them all at once with a shared name and sequence - any folder, not just Foldreel downloads."
     },
+    "settings": {
+      "title": "Settings",
+      "body": "gallery-dl, yt-dlp, FFmpeg, and aria2c all come bundled - nothing to install. This page holds the download folder, proxy, parallel-download count, theme, language, app updates, and where Foldreel's data folder lives."
+    },
+    "advanced": {
+      "title": "Advanced",
+      "body": "Naming templates for downloaded files, the browser extension's pairing code, and config presets for gallery-dl power users - tucked away here so the main pages stay simple."
+    },
     "sites": {
       "title": "Sites: private accounts",
       "body": "Instagram, Twitter, Pixiv and similar need a login. Pick a browser for Foldreel to read cookies from, or upload a cookies.txt for that site. Reddit, DeviantArt and others use one-click OAuth."
-    },
-    "tools": {
-      "title": "Tools & Settings",
-      "body": "For video, install FFmpeg and yt-dlp from Settings, Tools (one click each). Settings also holds the default download limit, proxy, parallel-download count, theme, language, and the data folder location."
     },
     "history": {
       "title": "History",

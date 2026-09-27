@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LayoutDashboard, KeyRound, Wrench, History as HistoryIcon, Sparkles, Bell, ArrowLeftRight, FolderTree } from 'lucide-react';
+import { LayoutDashboard, KeyRound, Wrench, Cog, History as HistoryIcon, Sparkles, Bell, ArrowLeftRight, FolderTree } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -23,8 +23,9 @@ const STEPS = [
   { key: 'watch', icon: Bell, to: '/watch' },
   { key: 'convert', icon: ArrowLeftRight, to: '/convert' },
   { key: 'organize', icon: FolderTree, to: '/organize' },
+  { key: 'settings', icon: Wrench, to: '/settings' },
+  { key: 'advanced', icon: Cog, to: '/advanced' },
   { key: 'sites', icon: KeyRound, to: '/sites' },
-  { key: 'tools', icon: Wrench, to: '/settings' },
 ];
 
 export default function Onboarding({ open, onClose }) {

@@ -25,7 +25,6 @@ export function JobsProvider({ children }) {
   const [jobs, setJobs] = useState({});          // id -> job
   const [logs, setLogs] = useState({});          // id -> [{kind,text}]
   const [oauth, setOauth] = useState({});        // site -> {url,done,ok,keys,error,lines}
-  const [tools, setTools] = useState({});        // name -> {status,pct,error}
   const [connected, setConnected] = useState(false);
   const [lingering, setLingering] = useState({}); // id -> true (just-finished, still shown in Queue & Active)
 
@@ -198,8 +197,6 @@ export function JobsProvider({ children }) {
             const lines = [...(cur.lines || []), msg.text].slice(-80);
             return { ...prev, [msg.site]: { ...cur, lines } };
           });
-        } else if (msg.type === 'tool.progress') {
-          setTools(prev => ({ ...prev, [msg.name]: { status: msg.status, pct: msg.pct, error: msg.error } }));
         }
       };
     };
@@ -284,7 +281,7 @@ export function JobsProvider({ children }) {
   return (
     <JobsContext.Provider value={{
       jobs, list, active, finished, queueView, logs, connected,
-      oauth, clearOauth, tools, setJobOpen,
+      oauth, clearOauth, setJobOpen,
       refresh, createJobs, cancel, pause, retry, remove, deleteFiles, clearFinished,
     }}>
       {children}

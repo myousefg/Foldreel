@@ -540,6 +540,14 @@ _TYPE_EXPR = (
 )
 
 
+# Per-extractor sleep-request floors for sites known to rate-limit on request
+# pacing specifically, regardless of the user's global sleep_request setting
+# (which defaults to - and is completely reasonable at - 0 for every other
+# site). Add an entry here rather than hand-writing a new carve-out in
+# build_gdl_config() if another site turns out to need the same treatment.
+_MIN_SLEEP_REQUEST = {"instagram": 2.0}
+
+
 def build_gdl_config(settings: dict, sites: List[dict]) -> dict:
     ex: Dict = {"base-directory": _abs_output(settings.get("output_dir"))}
 
@@ -580,8 +588,9 @@ def build_gdl_config(settings: dict, sites: List[dict]) -> dict:
         ex["directory"] = [_TYPE_EXPR if p == "{type}" else p for p in parts]
     # "site_user" → leave unset so each extractor keeps its own layout.
 
-    if float(settings.get("sleep_request", 0) or 0) > 0:
-        ex["sleep-request"] = settings["sleep_request"]
+    global_sleep = float(settings.get("sleep_request", 0) or 0)
+    if global_sleep > 0:
+        ex["sleep-request"] = global_sleep
     if int(settings.get("retries", 4)) != 4:
         ex["retries"] = int(settings.get("retries", 4))
     if settings.get("proxy"):
@@ -628,6 +637,18 @@ def build_gdl_config(settings: dict, sites: List[dict]) -> dict:
             ex.setdefault("mastodon", {})[s["instance"]] = node
         else:
             ex[s["site"]] = node
+
+    # Some sites rate-limit by request pacing, not just login state - even a
+    # fully cookie-authenticated session gets flagged after a burst of
+    # back-to-back requests. A global sleep-request of 0 is a completely
+    # reasonable default for every other site, so rather than raising it
+    # everywhere, floor it per extractor here - after the per-site loop
+    # above (not before: that loop replaces ex[site] wholesale whenever the
+    # user has cookies/login configured for it, which would otherwise wipe
+    # out a floor set earlier, silently, for exactly the logged-in case this
+    # exists to protect).
+    for site, floor in _MIN_SLEEP_REQUEST.items():
+        ex.setdefault(site, {})["sleep-request"] = max(global_sleep, floor)
 
     # Keep gallery-dl's own cache (OAuth tokens, pagination cursors) inside the
     # Foldreel data folder instead of %APPDATA%\gallery-dl\.
@@ -737,14 +758,22 @@ def _norm_range(v: str) -> str:
 
 
 def _normalize_url(url: str) -> str:
-    """Strip a single trailing slash from the path, not a bare domain. Some
-    extractors (Instagram's gallery-dl one included, even fully up to date)
-    build a next-page/tab request by appending straight onto whatever URL
-    they were given - a URL that already ends in "/" becomes ".../caeshymiaw//"
-    there, which 404s. "https://example.com/" (bare domain, no path) is left
-    alone since there's nothing to strip."""
-    if url.endswith("/") and not re.match(r"^https?://[^/]+/$", url):
-        return url[:-1]
+    """Strip a single trailing slash from the path, not a bare domain and not
+    a query string or fragment that merely happens to end in "/" (a stray
+    string match here would silently truncate something like
+    "?next=/foo/" down to "?next=/foo"). Some extractors (Instagram's
+    gallery-dl one included, even fully up to date) build a next-page/tab
+    request by appending straight onto whatever URL they were given - a URL
+    whose path already ends in "/" becomes ".../caeshymiaw//" there, which
+    404s. "https://example.com/" (bare domain, no path) is left alone since
+    there's nothing to strip."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return url
+    if len(parts.path) > 1 and parts.path.endswith("/"):
+        parts = parts._replace(path=parts.path[:-1])
+        return urllib.parse.urlunsplit(parts)
     return url
 
 
@@ -913,8 +942,8 @@ def build_ytdlp_argv(url: str, settings: dict, options: Optional[dict], print_to
 
     # aria2c splits a single video into parallel connections instead of one
     # sequential HTTP stream - a real speedup on the large single files a
-    # YouTube pull actually is. Same "if it's there, use it" rule as ffmpeg:
-    # no separate setting, just install it from Settings > Tools.
+    # YouTube pull actually is. Bundled alongside everything else in bin/,
+    # so "if it's there, use it" always resolves true in a normal install.
     #
     # yt-dlp's own -r/--limit-rate above does nothing once a download is
     # handed off to an external downloader - aria2c needs the equivalent
@@ -3068,7 +3097,7 @@ def _convert_video(src: Path, dest: Path, target: str, quality: str) -> None:
     same-extension "just compress this" request makes src == dest here too."""
     ff = _ffmpeg_bin()
     if not ff:
-        raise RuntimeError("FFmpeg isn't installed - install it from Settings > Tools")
+        raise RuntimeError("FFmpeg is missing from this install - try reinstalling Foldreel")
     crf = _VIDEO_CRF.get(quality, 23)
     # ffmpeg infers its output muxer from the destination filename's own
     # extension (no explicit -f here) - a ".part"-style suffix that hides

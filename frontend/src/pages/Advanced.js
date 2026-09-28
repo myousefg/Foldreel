@@ -93,20 +93,19 @@ export default function Advanced() {
           </span>
         )}
       >
-        {!extConnected && (
-          <Row
-            title={CHROME_STORE_URL ? t('settings.extensionDownload') : t('settings.extensionOpenFolder')}
-            desc={CHROME_STORE_URL ? t('settings.extensionDownloadStoreDesc') : t('settings.extensionOpenFolderDesc')}
-          >
-            <Button
-              variant="outline" size="sm"
-              onClick={() => (CHROME_STORE_URL ? openExternal(CHROME_STORE_URL) : openExtensionFolder())}
-            >
-              <Download className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />
-              {CHROME_STORE_URL ? t('settings.extensionDownloadStore') : t('settings.extensionOpenFolder')}
-            </Button>
-          </Row>
-        )}
+        {!extConnected && (() => {
+          const download = CHROME_STORE_URL
+            ? { title: t('settings.extensionDownload'), desc: t('settings.extensionDownloadStoreDesc'), label: t('settings.extensionDownloadStore'), action: () => openExternal(CHROME_STORE_URL) }
+            : { title: t('settings.extensionOpenFolder'), desc: t('settings.extensionOpenFolderDesc'), label: t('settings.extensionOpenFolder'), action: openExtensionFolder };
+          return (
+            <Row title={download.title} desc={download.desc}>
+              <Button variant="outline" size="sm" onClick={download.action}>
+                <Download className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />
+                {download.label}
+              </Button>
+            </Row>
+          );
+        })()}
         <Row title={t('settings.extensionPrivacy')} desc={t('settings.extensionPrivacyDesc')}>
           <Button variant="outline" size="sm" onClick={() => openExternal(PRIVACY_POLICY_URL)}>
             <Shield className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('settings.extensionPrivacy')}

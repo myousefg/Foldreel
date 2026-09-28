@@ -122,18 +122,32 @@
     if (!currentEl) return;
     let url = mediaUrlFor(currentEl);
     if (!url) return;
-    // Always send the page URL, never the hovered element's own src. A
+    // Video always goes through the page URL, never the raw <video> src. A
     // site's own extractor (gallery-dl/yt-dlp) needs the post URL to do
     // anything site-aware - X/Twitter's "GIF" detection included, which only
-    // fires from the tweet URL - and the element's own src is frequently a
-    // thumbnail or poster-frame rendition rather than the real file (a
-    // preview <img> shown while a video loads, a feed's compressed copy of a
-    // photo, etc.). mediaUrlFor() above still gates which elements count as
-    // a real candidate; only the URL actually sent has changed.
-    url = location.href;
+    // fires from the tweet URL - and sending the raw CDN src instead grabs
+    // the right bytes but skips that, so a "GIF" saves as a plain video.
+    //
+    // Images keep their own direct src (with a referer, since many CDNs
+    // hotlink-protect it) unless it's an in-memory blob: URL with no
+    // fetchable form. Two reasons this differs from video: a post can hold
+    // several images, and hovering one specific photo exists to grab just
+    // that one instead of the whole gallery the page URL would pull in;
+    // and the direct-src+referer path is also the fallback for a page
+    // gallery-dl/yt-dlp have no extractor for at all (a plain <img src>
+    // pointing straight at a CDN) - routing images through the page URL
+    // unconditionally would break that fallback entirely.
+    const isVideo = currentEl.tagName === 'VIDEO';
+    const isBlob = url.startsWith('blob:');
+    if (isVideo || isBlob) url = location.href;
+    const sendReferer = !isVideo && !isBlob; // direct image src still wants one
     let result;
     try {
-      result = await chrome.runtime.sendMessage({ type: 'send', urls: [url] });
+      result = await chrome.runtime.sendMessage({
+        type: 'send',
+        urls: [url],
+        options: sendReferer ? { referer: location.href } : undefined,
+      });
     } catch {
       result = { ok: false };
     }

@@ -41,29 +41,16 @@ const DEV = !fs.existsSync(BUILD_INDEX);
 const BACKEND_PORT = 8767;
 const BACKEND_URL  = `http://127.0.0.1:${BACKEND_PORT}`;
 
-// ── Bundled tools (gallery-dl, ffmpeg, ffprobe, yt-dlp, aria2c) ─────────────
-// All five ship as plain exes in bin/ (see package.json's win.extraResources),
-// so a fresh install can run its first job with nothing downloaded.
-function resolveBundledBinDir() {
+// ── Bundled resources (bin/ tools, extension/ source) ───────────────────────
+// Both ship as plain directories under package.json's win.extraResources, so
+// a fresh install can run its first job with nothing downloaded and "load
+// unpacked" works straight from the install with no separate zip needed.
+function resolveBundledDir(name) {
   const candidates = DEV
-    ? [path.join(__dirname, '..', 'bin')]
+    ? [path.join(__dirname, '..', name)]
     : [
-        path.join(process.resourcesPath, 'bin'),
-        path.join(process.resourcesPath, 'app.asar.unpacked', 'bin'),
-      ];
-  return candidates.find(p => fs.existsSync(p)) || '';
-}
-
-// The browser extension's source, bundled the same way (see package.json's
-// win.extraResources) so "load unpacked" works straight from the install -
-// no separate zip download needed, and it's always the exact version that
-// shipped with this build of the app.
-function resolveExtensionDir() {
-  const candidates = DEV
-    ? [path.join(__dirname, '..', 'extension')]
-    : [
-        path.join(process.resourcesPath, 'extension'),
-        path.join(process.resourcesPath, 'app.asar.unpacked', 'extension'),
+        path.join(process.resourcesPath, name),
+        path.join(process.resourcesPath, 'app.asar.unpacked', name),
       ];
   return candidates.find(p => fs.existsSync(p)) || '';
 }
@@ -224,7 +211,27 @@ async function handleBackendExit(code, signal) {
 // this used to double as Grabbr's port too, and launching one silently
 // killed the other's already-running backend) would get force-killed
 // along with it.
-const OUR_IMAGE_NAMES = new Set(['foldreel-backend.exe', 'python.exe', 'py.exe']);
+// Base names only (no .exe) - isOurProcess() below handles the Windows
+// suffix and Linux's 15-char /proc/<pid>/comm truncation.
+const OUR_IMAGE_NAMES = ['foldreel-backend', 'python', 'python3', 'py'];
+
+function isOurProcess(name) {
+  const base = name.replace(/\.exe$/, '');
+  return OUR_IMAGE_NAMES.some(n => n === base || n.startsWith(base));
+}
+
+// One shared "is this PID ours, and if so kill it" step per platform - the
+// two callers below differ only in how they list candidate PIDs and how
+// they look up + kill one.
+function killIfOurs(pid, getImageName, kill) {
+  const name = (getImageName(pid) || '').trim().toLowerCase();
+  if (!isOurProcess(name)) {
+    console.warn(`[foldreel] Port ${BACKEND_PORT} is held by "${name || 'unknown'}" (PID ${pid}) - not ours, leaving it alone.`);
+    return;
+  }
+  console.warn(`[foldreel] Clearing stale process on port ${BACKEND_PORT} (PID ${pid})`);
+  kill(pid);
+}
 
 function killStaleBackend() {
   try {
@@ -237,16 +244,12 @@ function killStaleBackend() {
         const m = line.trim().match(/(\d+)\s*$/);
         if (m) pids.add(m[1]);
       }
-      for (const pid of pids) {
+      const getImageName = pid => {
         const info = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true }).stdout || '';
-        const imageName = (info.split(',')[0] || '').replace(/"/g, '').trim().toLowerCase();
-        if (!OUR_IMAGE_NAMES.has(imageName)) {
-          console.warn(`[foldreel] Port ${BACKEND_PORT} is held by "${imageName || 'unknown'}" (PID ${pid}) - not ours, leaving it alone.`);
-          continue;
-        }
-        console.warn(`[foldreel] Clearing stale process on port ${BACKEND_PORT} (PID ${pid})`);
-        spawnSync('taskkill', ['/F', '/T', '/PID', pid], { windowsHide: true });
-      }
+        return (info.split(',')[0] || '').replace(/"/g, '');
+      };
+      const kill = pid => spawnSync('taskkill', ['/F', '/T', '/PID', pid], { windowsHide: true });
+      for (const pid of pids) killIfOurs(pid, getImageName, kill);
     } else {
       // lsof ships with macOS and most Linux desktops; if it's missing this
       // is just a no-op like the Windows branch's own catch-all - startBackend's
@@ -258,17 +261,14 @@ function killStaleBackend() {
       // is bound to the port could be a shell job leader or anything else
       // whose group killpg would reach far past a single stale process.
       const out = spawnSync('lsof', ['-t', '-i', `:${BACKEND_PORT}`, '-sTCP:LISTEN']).stdout?.toString() || '';
+      const getImageName = pid => {
+        const raw = spawnSync('ps', ['-p', pid, '-o', 'comm=']).stdout?.toString() || '';
+        return raw.trim().split('/').pop() || '';
+      };
+      const kill = pid => { try { process.kill(Number(pid), 'SIGKILL'); } catch { /* already gone */ } };
       for (const line of out.split('\n')) {
         const pid = line.trim();
-        if (!pid) continue;
-        const imageName = (spawnSync('ps', ['-p', pid, '-o', 'comm=']).stdout?.toString() || '').trim().toLowerCase();
-        const base = imageName.split('/').pop() || '';
-        if (!OUR_IMAGE_NAMES.has(base) && !['foldreel-backend', 'python', 'python3'].includes(base)) {
-          console.warn(`[foldreel] Port ${BACKEND_PORT} is held by "${base || 'unknown'}" (PID ${pid}) - not ours, leaving it alone.`);
-          continue;
-        }
-        console.warn(`[foldreel] Clearing stale process on port ${BACKEND_PORT} (PID ${pid})`);
-        try { process.kill(Number(pid), 'SIGKILL'); } catch { /* already gone */ }
+        if (pid) killIfOurs(pid, getImageName, kill);
       }
     }
   } catch { /* best-effort; startBackend's own timeout still catches a stuck bind */ }
@@ -278,7 +278,7 @@ function killStaleBackend() {
 function startBackend() {
   killStaleBackend();
   return new Promise((resolve, reject) => {
-    const bundledBin = resolveBundledBinDir();
+    const bundledBin = resolveBundledDir('bin');
     const env = {
       ...process.env,
       FOLDREEL_PORT: String(BACKEND_PORT),
@@ -465,7 +465,7 @@ ipcMain.handle('open-path', async (_, p) => {
   return false;
 });
 
-ipcMain.handle('get-extension-dir', () => resolveExtensionDir());
+ipcMain.handle('get-extension-dir', () => resolveBundledDir('extension'));
 
 ipcMain.handle('show-in-folder', (_, p) => {
   if (p && fs.existsSync(p)) { shell.showItemInFolder(p); return true; }

@@ -1,13 +1,13 @@
 // Foldreel browser extension - background service worker.
 //
 // Talks straight to the loopback backend that a running copy of Foldreel opens
-// on this same machine (http://127.0.0.1:8766) - nothing here ever leaves
+// on this same machine (http://127.0.0.1:8767) - nothing here ever leaves
 // localhost. Pairing works by asking Foldreel's own Settings page to mint a
 // persistent secret (separate from the per-run token the Electron app uses
 // internally, since this extension has no way to receive that one) and
 // pasting it into options.html once; see options.js for that flow.
 
-const API_HOST = 'http://127.0.0.1:8766';
+const API_HOST = 'http://127.0.0.1:8767';
 
 async function getSecret() {
   const { secret } = await chrome.storage.local.get('secret');

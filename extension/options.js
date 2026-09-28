@@ -1,4 +1,4 @@
-const API_HOST = 'http://127.0.0.1:8766';
+const API_HOST = 'http://127.0.0.1:8767';
 
 const codeInput = document.getElementById('code');
 const statusEl = document.getElementById('status');

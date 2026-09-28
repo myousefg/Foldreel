@@ -5,8 +5,8 @@ import axios from 'axios';
 // (the backend then runs with the check disabled).
 const API_TOKEN = (typeof window !== 'undefined' && window.electronAPI?.apiToken) || '';
 
-export const API_HOST = 'http://127.0.0.1:8766';
-export const WS_URL   = `ws://127.0.0.1:8766/api/ws${API_TOKEN ? `?token=${encodeURIComponent(API_TOKEN)}` : ''}`;
+export const API_HOST = 'http://127.0.0.1:8767';
+export const WS_URL   = `ws://127.0.0.1:8767/api/ws${API_TOKEN ? `?token=${encodeURIComponent(API_TOKEN)}` : ''}`;
 
 const api = axios.create({
   baseURL: `${API_HOST}/api`,

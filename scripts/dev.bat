@@ -7,8 +7,8 @@ echo  Foldreel - Dev
 echo =============================================
 echo.
 
-echo Killing any previous instance on port 8766...
-for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr ":8766 "') do (
+echo Killing any previous instance on port 8767...
+for /f "tokens=5" %%a in ('netstat -aon 2^>nul ^| findstr ":8767 "') do (
     taskkill /f /pid %%a 2>nul
 )
 timeout /t 1 /nobreak >nul
@@ -41,7 +41,7 @@ echo.
 echo =============================================
 echo  Starting Foldreel
 echo  React   : http://localhost:3000
-echo  Backend : http://localhost:8766
+echo  Backend : http://localhost:8767
 echo =============================================
 echo.
 

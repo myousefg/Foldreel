@@ -6,7 +6,7 @@
 // secret is a plain chrome.storage.local write, not something that needs
 // to go through the background worker.
 
-const API_HOST = 'http://127.0.0.1:8766';
+const API_HOST = 'http://127.0.0.1:8767';
 
 function isYoutube(url) {
   try {

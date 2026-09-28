@@ -38,7 +38,7 @@ app.on('ready', () => Menu.setApplicationMenu(null));
 const BUILD_INDEX = path.join(__dirname, '..', 'frontend', 'build', 'index.html');
 const DEV = !fs.existsSync(BUILD_INDEX);
 
-const BACKEND_PORT = 8766;
+const BACKEND_PORT = 8767;
 const BACKEND_URL  = `http://127.0.0.1:${BACKEND_PORT}`;
 
 // ── Bundled tools (gallery-dl, ffmpeg, ffprobe, yt-dlp, aria2c) ─────────────
@@ -203,6 +203,15 @@ async function handleBackendExit(code, signal) {
 // meanwhile the UI stays stuck unable to authenticate against it forever.
 // Clear anything already on our port before spawning so every launch starts
 // from a clean, correctly-tokened backend.
+// Only ever kill a PID whose own image name is actually one of ours - a
+// stale backend from a prior Foldreel run, or (in dev) the bare python/py
+// interpreter running server.py directly. Without this check, any other
+// app that happened to be listening on the same port (a real incident:
+// this used to double as Grabbr's port too, and launching one silently
+// killed the other's already-running backend) would get force-killed
+// along with it.
+const OUR_IMAGE_NAMES = new Set(['foldreel-backend.exe', 'python.exe', 'py.exe']);
+
 function killStaleBackend() {
   try {
     if (process.platform === 'win32') {
@@ -215,6 +224,12 @@ function killStaleBackend() {
         if (m) pids.add(m[1]);
       }
       for (const pid of pids) {
+        const info = spawnSync('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true }).stdout || '';
+        const imageName = (info.split(',')[0] || '').replace(/"/g, '').trim().toLowerCase();
+        if (!OUR_IMAGE_NAMES.has(imageName)) {
+          console.warn(`[foldreel] Port ${BACKEND_PORT} is held by "${imageName || 'unknown'}" (PID ${pid}) - not ours, leaving it alone.`);
+          continue;
+        }
         console.warn(`[foldreel] Clearing stale process on port ${BACKEND_PORT} (PID ${pid})`);
         spawnSync('taskkill', ['/F', '/T', '/PID', pid], { windowsHide: true });
       }
@@ -232,6 +247,12 @@ function killStaleBackend() {
       for (const line of out.split('\n')) {
         const pid = line.trim();
         if (!pid) continue;
+        const imageName = (spawnSync('ps', ['-p', pid, '-o', 'comm=']).stdout?.toString() || '').trim().toLowerCase();
+        const base = imageName.split('/').pop() || '';
+        if (!OUR_IMAGE_NAMES.has(base) && !['foldreel-backend', 'python', 'python3'].includes(base)) {
+          console.warn(`[foldreel] Port ${BACKEND_PORT} is held by "${base || 'unknown'}" (PID ${pid}) - not ours, leaving it alone.`);
+          continue;
+        }
         console.warn(`[foldreel] Clearing stale process on port ${BACKEND_PORT} (PID ${pid})`);
         try { process.kill(Number(pid), 'SIGKILL'); } catch { /* already gone */ }
       }
@@ -308,8 +329,8 @@ function stopBackend() {
   const pid = backendProc.pid;
   backendProc.removeListener('exit', handleBackendExit);
   // The frozen backend is a PyInstaller one-file exe: killing the bootloader
-  // leaves the real Python child (and any gallery-dl it spawned) holding port
-  // 8766, which breaks the next launch. Reap the whole tree.
+  // leaves the real Python child (and any gallery-dl it spawned) holding the
+  // port, which breaks the next launch. Reap the whole tree.
   if (process.platform === 'win32' && pid) {
     try { spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true }); }
     catch { /* fall through to kill() */ }

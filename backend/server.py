@@ -68,7 +68,7 @@ COOKIES_DIR.mkdir(parents=True, exist_ok=True)
 TOOLS_DIR.mkdir(parents=True, exist_ok=True)
 THUMBS_DIR.mkdir(parents=True, exist_ok=True)
 
-PORT = int(os.environ.get("FOLDREEL_PORT", "8766"))
+PORT = int(os.environ.get("FOLDREEL_PORT", "8767"))
 
 # The Electron shell's `bin/` folder, bundled straight into the installer
 # (gallery-dl, ffmpeg, ffprobe, yt-dlp, aria2c all ship there - see
@@ -2271,7 +2271,7 @@ app = FastAPI(title="Foldreel", lifespan=lifespan)
 API_TOKEN = os.environ.get("FOLDREEL_TOKEN", "")
 _ALLOWED_ORIGINS = {
     "http://localhost:3000", "http://127.0.0.1:3000",
-    "http://localhost:8766", "http://127.0.0.1:8766", "null",
+    "http://localhost:8767", "http://127.0.0.1:8767", "null",
 }
 
 app.add_middleware(

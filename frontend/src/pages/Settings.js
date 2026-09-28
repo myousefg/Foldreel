@@ -334,7 +334,7 @@ export default function Settings() {
           {t('settings.replayTour')}
         </button>
         <span className="font-mono">
-          backend 127.0.0.1:8766  ·  {typeof navigator !== 'undefined' ? (navigator.userAgent.match(/Electron\/[\d.]+/)?.[0] || 'browser') : ''}
+          backend 127.0.0.1:8767  ·  {typeof navigator !== 'undefined' ? (navigator.userAgent.match(/Electron\/[\d.]+/)?.[0] || 'browser') : ''}
         </span>
       </div>
     </div>

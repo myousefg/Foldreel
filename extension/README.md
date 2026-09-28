@@ -2,7 +2,7 @@
 
 Sends the current tab (or a right-clicked link) straight to Foldreel running on
 this computer, instead of copy-pasting the URL into the app. Same-machine
-only - it talks to `http://127.0.0.1:8766`, Foldreel's own loopback API, and
+only - it talks to `http://127.0.0.1:8767`, Foldreel's own loopback API, and
 never leaves localhost.
 
 ## Install (not yet published to a store)

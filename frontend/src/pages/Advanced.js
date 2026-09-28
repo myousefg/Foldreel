@@ -17,14 +17,14 @@ import { TokenMenu, NAME_TOKENS, NAME_TOKEN_TEXT } from '@/components/OutputSett
 import { useI18n } from '@/context/I18nProvider';
 import { useSettings } from '@/context/SettingsProvider';
 import { extensionApi, presetsApi } from '@/lib/api';
-import { openExternal } from '@/lib/electron';
+import { isElectron, openExternal } from '@/lib/electron';
 import { snappy } from '@/lib/motion';
 
 // Set once the Chrome Web Store listing is live (Developer Dashboard -> the
 // item -> "Public URL" once it's approved and public); falls back to a direct
 // zip download until then.
 const CHROME_STORE_URL = '';
-const PRIVACY_POLICY_URL = 'https://claude.ai/artifact/4LTcHdrjn8U6VbaPUPqDNV';
+const PRIVACY_POLICY_URL = 'https://github.com/myousefg/Foldreel/blob/main/PRIVACY.md';
 
 export default function Advanced() {
   const { t } = useI18n();
@@ -57,6 +57,14 @@ export default function Advanced() {
     catch { toast.error(t('settings.saveFailed')); }
     finally { setExtBusy(false); }
   };
+  const openExtensionFolder = async () => {
+    if (!isElectron) return;
+    try {
+      const dir = await window.electronAPI.getExtensionDir();
+      if (dir) await window.electronAPI.openPath(dir);
+      else toast.error(t('settings.saveFailed'));
+    } catch { toast.error(t('settings.saveFailed')); }
+  };
   const copyExtensionSecret = async () => {
     try {
       await navigator.clipboard.writeText(extSecret);
@@ -87,15 +95,15 @@ export default function Advanced() {
       >
         {!extConnected && (
           <Row
-            title={t('settings.extensionDownload')}
-            desc={CHROME_STORE_URL ? t('settings.extensionDownloadStoreDesc') : t('settings.extensionDownloadDesc')}
+            title={CHROME_STORE_URL ? t('settings.extensionDownload') : t('settings.extensionOpenFolder')}
+            desc={CHROME_STORE_URL ? t('settings.extensionDownloadStoreDesc') : t('settings.extensionOpenFolderDesc')}
           >
             <Button
               variant="outline" size="sm"
-              onClick={() => openExternal(CHROME_STORE_URL || 'https://github.com/myousefg/Foldreel/releases/latest/download/Foldreel-Extension.zip')}
+              onClick={() => (CHROME_STORE_URL ? openExternal(CHROME_STORE_URL) : openExtensionFolder())}
             >
               <Download className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />
-              {CHROME_STORE_URL ? t('settings.extensionDownloadStore') : t('settings.extensionDownload')}
+              {CHROME_STORE_URL ? t('settings.extensionDownloadStore') : t('settings.extensionOpenFolder')}
             </Button>
           </Row>
         )}

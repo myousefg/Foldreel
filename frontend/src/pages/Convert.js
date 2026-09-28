@@ -274,9 +274,6 @@ export default function Convert() {
         <Button variant="outline" onClick={browse} disabled={!isElectron} data-testid="convert-browse-btn">
           <Upload className="w-4 h-4 me-2" aria-hidden="true" /> {t('convert.browse')}
         </Button>
-        <p className="text-[11px] text-muted-foreground/70 mt-4 font-mono">
-          {[...PHOTO_EXT].join(' ')} &middot; {[...VIDEO_EXT].join(' ')}
-        </p>
       </div>
 
       <div className="flex items-center gap-2 flex-wrap border border-border rounded-md px-3 py-2.5 bg-muted/20">

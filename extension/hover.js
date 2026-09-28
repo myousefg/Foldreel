@@ -122,21 +122,18 @@
     if (!currentEl) return;
     let url = mediaUrlFor(currentEl);
     if (!url) return;
-    // A MediaSource-backed player (YouTube, X/Twitter, most modern sites -
-    // same case background.js's own webRequest listener calls out) exposes
-    // only a blob: URL here, which is a reference into this page's own JS
-    // memory and can't be fetched by the backend at all. Falling back to the
-    // page URL itself still lets the click do something useful - the normal
-    // site extractor picks it up the same way pasting the link would.
-    const useReferer = !url.startsWith('blob:');
-    if (!useReferer) url = location.href;
+    // Always send the page URL, never the hovered element's own src. A
+    // site's own extractor (gallery-dl/yt-dlp) needs the post URL to do
+    // anything site-aware - X/Twitter's "GIF" detection included, which only
+    // fires from the tweet URL - and the element's own src is frequently a
+    // thumbnail or poster-frame rendition rather than the real file (a
+    // preview <img> shown while a video loads, a feed's compressed copy of a
+    // photo, etc.). mediaUrlFor() above still gates which elements count as
+    // a real candidate; only the URL actually sent has changed.
+    url = location.href;
     let result;
     try {
-      result = await chrome.runtime.sendMessage({
-        type: 'send',
-        urls: [url],
-        options: useReferer ? { referer: location.href } : undefined,
-      });
+      result = await chrome.runtime.sendMessage({ type: 'send', urls: [url] });
     } catch {
       result = { ok: false };
     }

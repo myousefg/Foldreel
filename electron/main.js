@@ -54,6 +54,20 @@ function resolveBundledBinDir() {
   return candidates.find(p => fs.existsSync(p)) || '';
 }
 
+// The browser extension's source, bundled the same way (see package.json's
+// win.extraResources) so "load unpacked" works straight from the install -
+// no separate zip download needed, and it's always the exact version that
+// shipped with this build of the app.
+function resolveExtensionDir() {
+  const candidates = DEV
+    ? [path.join(__dirname, '..', 'extension')]
+    : [
+        path.join(process.resourcesPath, 'extension'),
+        path.join(process.resourcesPath, 'app.asar.unpacked', 'extension'),
+      ];
+  return candidates.find(p => fs.existsSync(p)) || '';
+}
+
 console.log(`[foldreel] mode=${DEV ? 'DEV' : 'PROD'}`);
 
 // ── App auto-update (GitHub releases) ───────────────────────────────────────
@@ -450,6 +464,8 @@ ipcMain.handle('open-path', async (_, p) => {
   if (p && fs.existsSync(p)) { await shell.openPath(p); return true; }
   return false;
 });
+
+ipcMain.handle('get-extension-dir', () => resolveExtensionDir());
 
 ipcMain.handle('show-in-folder', (_, p) => {
   if (p && fs.existsSync(p)) { shell.showItemInFolder(p); return true; }

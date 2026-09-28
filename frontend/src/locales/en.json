@@ -133,7 +133,7 @@
     "videosTo": "Videos →",
     "quality": {
       "high": "Quality: High",
-      "medium": "Quality: Medium",
+      "medium": "Quality: Normal",
       "low": "Quality: Low"
     },
     "gif": {
@@ -287,6 +287,8 @@
     "extensionDownloadDesc": "Not yet on the Chrome Web Store. Download it and load it manually (chrome://extensions, Developer mode, Load unpacked).",
     "extensionDownloadStore": "Get it on the Chrome Web Store",
     "extensionDownloadStoreDesc": "Install it straight from the Chrome Web Store - it'll update itself from there too.",
+    "extensionOpenFolder": "Open extension folder",
+    "extensionOpenFolderDesc": "The extension ships with Foldreel itself - open its folder and load it unpacked (chrome://extensions, Developer mode, Load unpacked).",
     "extensionPrivacy": "Privacy policy",
     "extensionPrivacyDesc": "What the extension does and does not do with your data.",
     "extensionEnable": "Enable",

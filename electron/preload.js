@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showInFolder: (p)    => ipcRenderer.invoke('show-in-folder', p),
   openExternal: (url)  => ipcRenderer.invoke('open-external', url),
   getPaths:     ()     => ipcRenderer.invoke('get-paths'),
+  getExtensionDir: ()  => ipcRenderer.invoke('get-extension-dir'),
   notify:       (title, body) => ipcRenderer.invoke('show-notification', { title, body }),
   setTrayBadge: (count) => ipcRenderer.invoke('set-tray-badge', count),
   setAutoStart: (enable) => ipcRenderer.invoke('set-auto-start', enable),

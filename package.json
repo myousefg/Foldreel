@@ -42,7 +42,7 @@
       ],
       "icon": "electron/assets/icon.ico",
       "requestedExecutionLevel": "asInvoker",
-      "artifactName": "Foldreel-Setup-${version}.exe",
+      "artifactName": "Foldreel-Setup-${version}.${ext}",
       "signtoolOptions": {
         "publisherName": "Foldreel"
       },

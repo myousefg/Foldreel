@@ -374,6 +374,16 @@ function patchConcurrency(value) {
   req.end();
 }
 
+function fetchConcurrency() {
+  return new Promise(resolve => {
+    http.get(`${BACKEND_URL}/api/settings`, { headers: { 'X-Foldreel-Token': API_TOKEN } }, res => {
+      let buf = '';
+      res.on('data', d => (buf += d));
+      res.on('end', () => { try { resolve(JSON.parse(buf).max_concurrent || 2); } catch { resolve(null); } });
+    }).on('error', () => resolve(null));
+  });
+}
+
 // ── Window ──────────────────────────────────────────────────────────────────
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -408,8 +418,14 @@ function buildTrayMenu() {
     { type: 'separator' },
     {
       label: queuePaused ? 'Resume Queue' : 'Pause Queue',
-      click: () => {
+      click: async () => {
         queuePaused = !queuePaused;
+        if (queuePaused) {
+          // Capture whatever the user has it set to right now (Settings may
+          // have changed it since app launch or the last pause) so Resume
+          // restores that instead of a stale startup value.
+          savedConcurrency = (await fetchConcurrency()) ?? savedConcurrency;
+        }
         patchConcurrency(queuePaused ? 0 : savedConcurrency);
         tray.setContextMenu(buildTrayMenu());
         tray.setToolTip(queuePaused ? 'Foldreel (queue paused)' : 'Foldreel');
@@ -529,11 +545,7 @@ app.whenReady().then(async () => {
   try {
     await startBackend();
     // Learn current concurrency so tray pause/resume can restore it.
-    http.get(`${BACKEND_URL}/api/settings`, { headers: { 'X-Foldreel-Token': API_TOKEN } }, res => {
-      let buf = '';
-      res.on('data', d => (buf += d));
-      res.on('end', () => { try { savedConcurrency = JSON.parse(buf).max_concurrent || 2; } catch {} });
-    }).on('error', () => {});
+    fetchConcurrency().then(v => { if (v !== null) savedConcurrency = v; });
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.loadURL(DEV ? 'http://localhost:3000' : `file://${BUILD_INDEX}`);
     }

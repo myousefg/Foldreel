@@ -243,7 +243,8 @@ def merge_cookie_folder() -> Optional[str]:
     files = _cookie_txt_files()
     if not files:
         try:
-            COOKIES_MERGED.unlink(missing_ok=True)
+            with _config_lock:
+                COOKIES_MERGED.unlink(missing_ok=True)
         except Exception:
             pass
         return None
@@ -259,7 +260,8 @@ def merge_cookie_folder() -> Optional[str]:
         return None
     body = "# Netscape HTTP Cookie File\n# merged by Foldreel\n" + "\n".join(seen.values()) + "\n"
     try:
-        COOKIES_MERGED.write_text(body, encoding="utf-8")
+        with _config_lock:
+            COOKIES_MERGED.write_text(body, encoding="utf-8")
         return str(COOKIES_MERGED)
     except Exception:
         return None
@@ -305,6 +307,13 @@ log.addHandler(_fh)
 
 # ── SQLite ────────────────────────────────────────────────────────────────────
 _db_lock = threading.Lock()
+
+# Guards writes to CONFIG_PATH/COOKIES_MERGED, which get touched both from sync
+# route handlers (run in Starlette's threadpool) and from JobManager._run (on
+# the asyncio event-loop thread) - without this, two concurrent writers can
+# interleave and hand a just-dispatched gallery-dl subprocess a torn or stale
+# config file.
+_config_lock = threading.Lock()
 
 
 def _conn():
@@ -686,7 +695,8 @@ def write_gdl_config() -> dict:
     try:
         cfg = build_gdl_config(get_settings(), get_sites())
         cfg = _deep_merge(cfg, get_gdl_overrides())
-        CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+        with _config_lock:
+            CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     except Exception as e:
         log.error("could not write gallery-dl config: %s", e)
     return cfg
@@ -1782,7 +1792,10 @@ async def _oauth_worker(site: str, run: OAuthRun, target: str):
         merged.update(run.keys)
         _upsert_site(site, {"token_json": json.dumps(merged)})
         write_gdl_config()
-    else:
+    elif not run.error:
+        # Don't clobber a more specific error (e.g. the timeout message set
+        # above) - this generic one is only accurate when the process ran to
+        # completion without producing tokens.
         run.error = "No tokens found in gallery-dl output. See the log."
     await ws_manager.broadcast(
         {"type": "site.oauth", "site": site, "done": True, "ok": run.ok, "keys": list(run.keys), "error": run.error}
@@ -2346,8 +2359,8 @@ async def _local_guard(request: Request, call_next):
             return JSONResponse({"detail": "forbidden origin"}, status_code=403)
         # Header for XHR/fetch; query param for <img>/<video> loads that can't
         # set headers.
-        sent = request.headers.get("x-foldreel-token") or request.query_params.get("token")
-        if sent != API_TOKEN:
+        sent = request.headers.get("x-foldreel-token") or request.query_params.get("token") or ""
+        if not secrets.compare_digest(sent, API_TOKEN):
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return await call_next(request)
 
@@ -3266,6 +3279,7 @@ class ConvertIn(BaseModel):
 @api.post("/convert")
 async def create_conversions(body: ConvertIn):
     created = []
+    claimed = set()  # dest paths already handed to an earlier item in this same batch
     for item in body.items:
         src = Path(item.path)
         if not src.is_file():
@@ -3278,11 +3292,14 @@ async def create_conversions(body: ConvertIn):
             raise HTTPException(400, f"Unsupported target '{item.target}' for {kind}")
         conv_id = uuid.uuid4().hex
         dest = src.with_suffix(f".{item.target}")
-        # Never silently overwrite something else already at the target name.
+        # Never silently overwrite something else already at the target name -
+        # including a dest another item earlier in this same batch just
+        # claimed, which won't exist on disk yet since neither has run.
         n = 1
-        while dest.exists() and dest != src:
+        while (dest.exists() or dest in claimed) and dest != src:
             dest = src.with_name(f"{src.stem} ({n}).{item.target}")
             n += 1
+        claimed.add(dest)
         options = {}
         if item.target == "gif":
             options = {

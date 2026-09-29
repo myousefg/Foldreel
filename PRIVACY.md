@@ -39,6 +39,13 @@ address (`127.0.0.1`). It never talks to any server operated by us or by anyone 
 | `webRequest` | Identifies the real media URL behind a page's player, so the hover button and context menu know what to send. |
 | Host permissions (`<all_urls>`) | The hover-to-send button and right-click menu need to work on any site you're browsing, not a fixed list. |
 
+## Your responsibility
+
+Foldreel doesn't host, control, or curate any of the content you download — it just automates
+the same request your browser would make to the site you pointed it at. You're responsible for
+having the right to download whatever you choose to, and for following the terms of service of
+any site you use it with.
+
 ## Third-party tools
 
 gallery-dl, yt-dlp, FFmpeg, and aria2c ship inside Foldreel as separate, unmodified programs

@@ -20,54 +20,71 @@ files, no juggling four different tools.
 [FAQ](#frequently-asked-questions) &nbsp;&middot;&nbsp;
 [Contributing](#contributing)
 
+<br>
+
+<img src="docs/screenshots/downloads.png" alt="Foldreel Downloads page: a link box above a grid of recently finished downloads" width="860">
+
 </div>
 
 ---
 
 ## Features
 
-Four tools in one app, sharing the same queue, history, and settings:
+Four tools in one app, sharing one queue, library, and set of settings:
 
 - **Download** full-resolution photos, videos, and galleries from 300+ sites.
-- **Convert** HEIC/MOV/anything to JPG/MP4/GIF, with quality and compression controls.
-- **Rename** files and folders in bulk, in whatever order you drag them into.
+- **Convert** photos and videos (HEIC, MOV, and more) to JPG, PNG, WebP, MP4, or GIF. Save a single frame of a video as a picture.
+- **Organize** files and folders with bulk renaming, in whatever order you drag them.
 - **Watch** a page on a schedule so new posts download themselves.
 
-- **Paste and go.** Drop in one link or a whole list, one per line. Each becomes its own job in
-  the queue.
-- **Full albums, not just previews.** Foldreel pulls the original files at full resolution, not the
-  compressed thumbnails a site shows in its feed.
-- **Live queue.** Watch progress per download, with a streaming log, in real time.
-- **Preview before you commit.** See exactly what a link will download before it downloads
-  anything.
-- **Searchable history.** Every finished download, with one click to open the folder or grab it
-  again.
-- **Built-in logins.** Cookies, username and password, or OAuth, all saved per site so you only
-  set it up once.
-- **YouTube support.** Paste a YouTube link and pick a quality and format, audio-only included.
-- **Automatic GIF conversion.** A Twitter/X "GIF" is secretly a video file. Foldreel notices and
-  turns it into a real, shareable `.gif`.
-- **Skip what you already have.** Re-run the same link later and only new files download.
-- **Watch a page.** Turn any URL into a recurring check (15 minutes up to 24 hours) instead of a
-  one-off download - only whatever's new since last time actually downloads.
-- **Convert or compress.** Drop any photo or video, not just something Foldreel downloaded - HEIC and
-  MOV from an iPhone convert straight to JPG and MP4, with a quality control for shrinking file size,
-  plus a manual GIF converter with its own FPS/size/time-range controls. Settings can also do this
-  automatically for every future download.
-- **Bulk rename.** Pick specific files or folders - anywhere on disk, not just Foldreel downloads -
-  drag them into the order you want, and rename them all at once with a shared name and sequence.
-  Every rename is undoable.
-- **A browser extension** to send the current tab straight to Foldreel without switching windows,
-  including a hover button over any image or video on a page, a one-click cookies.txt export for
-  the site you're on, and a fallback for unsupported websites with no visible download link at all.
-- **45 languages**, with automatic detection of your system language and full right-to-left
-  support.
-- **Light, dark, or system theme**, keyboard and screen-reader friendly throughout.
-- **Runs in the background.** Minimizes to the tray and keeps downloading while you do other
-  things.
+### Downloading
 
-Foldreel never touches gallery-dl configuration or caches you may already have on your machine. It
-keeps everything in its own folder, completely separate.
+- **Paste and go.** Drop in one link or a list, one per line. Each link becomes its own job.
+- **Full albums at full resolution.** Foldreel fetches the original files, not the compressed thumbnails a feed shows.
+- **Live queue.** Progress for each download, with a streaming log.
+- **Preview before you commit.** See what a link will download before it downloads anything.
+- **Library.** Every finished download, grouped by day, with full-size previews, one click to open the folder, and one click to download it again.
+- **Built-in logins.** Cookies, username and password, or OAuth, saved per site. You set each up once.
+- **YouTube.** Pick a quality and format, audio-only included.
+- **Automatic GIFs.** A Twitter/X "GIF" is a video file in disguise. Foldreel turns it into a real `.gif`.
+- **Skip what you have.** Run the same link later and only new files download.
+- **Watch a page.** Check any URL every 15 minutes to 24 hours and download only what is new.
+
+### Converting and organizing
+
+- **Convert or compress.** Drop in any photo or video, not only Foldreel downloads. Choose High, Normal, or Low quality to trade file size against detail. A separate GIF converter has its own frame rate, size, and time-range controls. Settings can apply a conversion to every future download.
+- **Bulk rename.** Pick files or folders from anywhere on disk and drag them into order. View them as a list or as medium or large pictures so you can see which file is which, then rename them with a shared name and sequence. Every rename can be undone.
+- **Import from Grabbr.** Bring over settings, history, watches, logins, and cookies. Foldreel only reads the old install and backs up its own data first.
+
+### Everything else
+
+- **A browser extension** sends the current tab to Foldreel, adds a hover button to images and videos, and shares a site's login cookies in one click. It also has a keyboard shortcut (Alt+Shift+F).
+- **More than 40 languages**, with automatic detection and full right-to-left support.
+- **Light, dark, or system theme**, with keyboard and screen-reader support.
+- **Runs in the background.** Minimize to the tray and downloads continue.
+
+Foldreel never touches gallery-dl configuration or caches already on your machine. It keeps its own data in its own folder.
+
+---
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/library.png" alt="Library with the preview panel open"><br><sub><b>Library.</b> Full-size previews of everything you downloaded.</sub></td>
+    <td width="50%"><img src="docs/screenshots/organize.png" alt="Organize page showing files with large previews and their new names"><br><sub><b>Organize.</b> Bigger previews show which file gets which name.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/convert.png" alt="Convert page with a list of photos and format and quality controls"><br><sub><b>Convert.</b> One format and quality for the batch, or one per file.</sub></td>
+    <td width="50%"><img src="docs/screenshots/sites.png" alt="Sites page listing supported sites with their logos"><br><sub><b>Sites.</b> Logins and cookies for each site, in one place.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/downloads-dark.png" alt="Downloads page in dark theme"><br><sub><b>Dark theme.</b> Light, dark, or follow Windows.</sub></td>
+    <td width="50%"><img src="docs/screenshots/extension-popup.png" alt="The Foldreel browser extension popup"><br><sub><b>Browser extension.</b> Send a page, or share a site's login.</sub></td>
+  </tr>
+</table>
+
+The pictures in these screenshots are generated samples, not real downloads.
 
 ---
 
@@ -81,8 +98,10 @@ keeps everything in its own folder, completely separate.
 3. That's it. No administrator permissions needed, and Foldreel launches automatically once
    installed.
 
-Everything else is built in - gallery-dl, yt-dlp, FFmpeg, and aria2c all ship inside the
-installer, so nothing downloads after install.
+Everything else is built in. gallery-dl, yt-dlp, FFmpeg, and aria2c ship inside the
+installer, so nothing downloads after install. When a site changes, update the tools from
+**Settings, About** without waiting for a new Foldreel release. (The Microsoft Store version updates
+them together with the app instead.)
 
 **Updating:** Foldreel checks for new releases automatically and lets you know from Settings. You
 can also just download and run the latest installer at any time; it upgrades your existing

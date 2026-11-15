@@ -16,8 +16,11 @@ files, no juggling four different tools.
 
 [Download](#download) &nbsp;&middot;&nbsp;
 [Features](#features) &nbsp;&middot;&nbsp;
+[Screenshots](#screenshots) &nbsp;&middot;&nbsp;
 [Supported sites](#supported-sites) &nbsp;&middot;&nbsp;
+[Browser extension](#browser-extension) &nbsp;&middot;&nbsp;
 [FAQ](#frequently-asked-questions) &nbsp;&middot;&nbsp;
+[Privacy](#privacy) &nbsp;&middot;&nbsp;
 [Contributing](#contributing)
 
 <br>
@@ -135,6 +138,31 @@ Logging in takes one of three forms depending on the site, all handled from the 
 
 ---
 
+## Browser extension
+
+The extension sends the page you are on to Foldreel, so you can skip copying the link.
+
+<p align="center"><img src="docs/screenshots/extension-hover.png" alt="The Foldreel button over an image on a web page" width="640"></p>
+
+**Install**
+
+1. Get it from the [Chrome Web Store](https://chromewebstore.google.com/detail/ipmdcekleimdpcnokecigllimfcjaekn), or download `Foldreel-Extension-x.x.x.zip` from the
+   [latest release](https://github.com/myousefg/Foldreel/releases/latest), unzip it, open
+   `chrome://extensions`, turn on **Developer mode**, and choose **Load unpacked**. Edge and Brave work the same way.
+2. In Foldreel, open **Advanced**, then **Extension**, and turn it on. Copy the pairing code.
+3. Click the Foldreel icon in your browser toolbar, paste the code, and choose **Connect**.
+
+**Use**
+
+- Click the toolbar icon, or press **Alt+Shift+F**, to send the current page.
+- Right-click a link, image, or video and choose **Send to Foldreel**.
+- Hover an image or video to show a **Foldreel** button on it. Turn the button off for a single site from the popup, or everywhere from the extension's settings page.
+- Choose **Add** in the popup to share your login for the current site. If Foldreel already has that site's cookies, the button reads **Replace**.
+
+The extension talks only to Foldreel on your own computer, at `127.0.0.1`. It reads cookies only when you press the cookie button. See [extension/README.md](extension/README.md) for details.
+
+---
+
 ## Frequently asked questions
 
 ### Downloads from Chrome, Edge, or Brave aren't working
@@ -171,6 +199,12 @@ downloads keep going in the background. Choose **Exit** from the tray icon to st
 Wherever you set your download folder to, in Settings. That's completely separate from Foldreel's
 own data (your saved logins, history, and settings), which lives in your Windows user profile and
 never mixes with your media.
+
+---
+
+## Privacy
+
+Foldreel has no account, no analytics, and no server of ours. Your settings, history, and logins stay in a folder on your computer. The only requests it makes besides the ones you ask for are version checks to GitHub. Read the full [privacy policy](PRIVACY.md).
 
 ---
 
@@ -221,10 +255,18 @@ foldreel/
 ├── frontend/       React UI (pages, components, state)
 ├── backend/        Python/FastAPI download engine
 ├── extension/      The companion browser extension
+├── docs/           Screenshots used in this README
 └── scripts/        Dev and build scripts
 ```
 
 To build an installer yourself, run `scripts\build-exe.bat`.
+
+### Running the tests
+
+```bash
+python -m pytest backend/tests
+cd frontend && yarn test --watchAll=false
+```
 
 ---
 

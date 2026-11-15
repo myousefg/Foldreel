@@ -5,15 +5,18 @@ this computer, instead of copy-pasting the URL into the app. Same-machine
 only - it talks to `http://127.0.0.1:8767`, Foldreel's own loopback API, and
 never leaves localhost.
 
-## Install (not yet published to a store)
+## Install
+
+From the [Chrome Web Store](https://chromewebstore.google.com/detail/ipmdcekleimdpcnokecigllimfcjaekn), or by hand:
 
 1. Open `chrome://extensions` (or `edge://extensions`).
 2. Turn on **Developer mode** (top right).
 3. Click **Load unpacked** and select this `extension/` folder.
-4. In Foldreel, go to **Settings → Browser extension → Enable** and copy the
-   pairing code.
-5. Click the Foldreel toolbar icon, paste the code into the popup, and click
-   **Connect**.
+
+Then connect it to Foldreel:
+
+1. In Foldreel, go to **Advanced → Extension → Enable** and copy the pairing code.
+2. Click the Foldreel toolbar icon, paste the code into the popup, and click **Connect**.
 
 ## Use
 

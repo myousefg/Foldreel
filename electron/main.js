@@ -57,6 +57,11 @@ function resolveBundledDir(name) {
 
 console.log(`[foldreel] mode=${DEV ? 'DEV' : 'PROD'}`);
 
+// The Microsoft Store package is updated by the Store. Its install is managed and
+// read-only, and Store policy does not allow an app to replace itself, so every
+// GitHub-based update path below is skipped for it.
+const IS_STORE = !!process.windowsStore;
+
 // ── App auto-update (GitHub releases) ───────────────────────────────────────
 // Checking is automatic on startup; downloading and installing stay a
 // deliberate user action, same as the gallery-dl/ffmpeg/yt-dlp tools in
@@ -290,6 +295,8 @@ function startBackend() {
       // running as an orphan holding the port. Have the backend watch this PID
       // itself and exit the moment it's gone, however that happens.
       FOLDREEL_PARENT_PID: String(process.pid),
+      // The backend must not download replacement tools in a Store build either.
+      FOLDREEL_STORE: IS_STORE ? '1' : '',
     };
     if (bundledBin) env.FOLDREEL_BUNDLED_BIN = bundledBin;
     console.log('[foldreel] bundled tools dir:', bundledBin || '(none - falling back to PATH)');
@@ -524,6 +531,7 @@ ipcMain.handle('set-auto-start', (_, enable) => {
 ipcMain.handle('get-auto-start', () => app.getLoginItemSettings().openAtLogin);
 
 ipcMain.handle('check-for-app-update', async () => {
+  if (IS_STORE) { sendUpdateStatus({ status: 'store' }); return; }
   if (DEV) { sendUpdateStatus({ status: 'current' }); return; }
   try { await autoUpdater.checkForUpdates(); }
   catch (err) { sendUpdateStatus({ status: 'error', error: err?.message || String(err) }); }
@@ -554,7 +562,7 @@ app.whenReady().then(async () => {
   }
 
   // Silent startup check; downloading and installing stay opt-in from Settings.
-  if (!DEV) setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
+  if (!DEV && !IS_STORE) setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

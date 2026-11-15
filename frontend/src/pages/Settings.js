@@ -13,7 +13,11 @@ import {
 } from '@/components/ui/select';
 import { Section, Row } from '@/components/settingsUi';
 import LanguageCombobox from '@/components/LanguageCombobox';
-import LegalSection, { COPYRIGHT_YEAR, COPYRIGHT_HOLDER } from '@/components/LegalSection';
+import ImportSection from '@/components/ImportSection';
+import ComponentsRow from '@/components/ComponentsRow';
+import { PageActions } from '@/components/PageHeader';
+import LegalSection from '@/components/LegalSection';
+import SubNav from '@/components/SubNav';
 import { useI18n } from '@/context/I18nProvider';
 import { useTheme } from '@/context/ThemeProvider';
 import { useSettings } from '@/context/SettingsProvider';
@@ -25,6 +29,7 @@ export default function Settings() {
   const { t, lang, setLang } = useI18n();
   const { theme, setTheme } = useTheme();
   const { settings: s, env, saveState, update } = useSettings();
+  const [tab, setTab] = useState('general');
   const [showCfg, setShowCfg] = useState(false);
   const [cfg, setCfg] = useState(null);
   const cfgPanelId = useId();
@@ -95,13 +100,19 @@ export default function Settings() {
   }[saveState];
 
   return (
-    <div className="space-y-8 pb-12">
-      <header className="flex items-start justify-between">
-        <div />
-        <div className="text-xs mt-2 h-4">{saveTag}</div>
-      </header>
+    <SubNav
+      label={t('nav.settings')} value={tab} onChange={setTab}
+      tabs={[
+        ['general', t('settings.appearance')],
+        ['downloads', t('settings.files')],
+        ['import', t('import.title')],
+        ['about', t('settings.about')],
+        ['legal', t('settings.legal')],
+      ]}
+    >
+      <PageActions><div className="text-xs" aria-live="polite">{saveTag}</div></PageActions>
 
-      {env && (
+      {tab === 'downloads' && env && (
         <Section label={t('settings.files')}>
           <Row title={t('settings.dataFolder')} desc={t('settings.dataFolderDesc')}>
             <code className="font-mono text-[11px] text-muted-foreground break-all max-w-[280px] block">{env.data_dir}</code>
@@ -226,6 +237,9 @@ export default function Settings() {
         </Section>
       )}
 
+      {tab === 'import' && <ImportSection />}
+
+      {tab === 'general' && (
       <Section label={t('settings.appearance')}>
         <Row title={t('settings.theme')}>
           <Select value={theme} onValueChange={v => { setTheme(v); update({ theme: v }); }}>
@@ -251,7 +265,9 @@ export default function Settings() {
           />
         </Row>
       </Section>
+      )}
 
+      {tab === 'about' && (<>
       <Section label={t('settings.about')}>
         <Row
           title={
@@ -275,43 +291,31 @@ export default function Settings() {
             </div>
           )}
         </Row>
-        <Row title={t('settings.components')} desc={t('settings.componentsDesc')}>
-          <div className="text-right text-xs font-mono text-muted-foreground space-y-0.5">
-            <div>gallery-dl {env?.gallery_dl_version || '…'}</div>
-            <div>
-              ffmpeg {env?.ffmpeg ? t('settings.installed') : t('settings.notInstalled')}
-              {'  ·  '}
-              yt-dlp {env?.yt_dlp ? t('settings.installed') : t('settings.notInstalled')}
-            </div>
-          </div>
-        </Row>
-        <Row title={t('settings.copyright')} desc={t('settings.licenseDesc')}>
-          <span className="text-xs text-muted-foreground text-right leading-relaxed">
-            Copyright (c) {COPYRIGHT_YEAR} {COPYRIGHT_HOLDER}
-            <br />MIT License
-          </span>
-        </Row>
+        <ComponentsRow />
       </Section>
 
-      <LegalSection />
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new Event('foldreel:tour'))}
+        className="px-3 text-xs text-muted-foreground underline hover:text-foreground"
+      >
+        {t('settings.replayTour')}
+      </button>
+      </>)}
 
-      <div className="flex items-center justify-between gap-3 pt-1 text-[11px] text-muted-foreground/60">
-        <button
-          onClick={() => window.dispatchEvent(new Event('foldreel:tour'))}
-          className="underline hover:text-foreground"
-        >
-          {t('settings.replayTour')}
-        </button>
-        <span className="font-mono">
-          backend 127.0.0.1:8767  ·  {typeof navigator !== 'undefined' ? (navigator.userAgent.match(/Electron\/[\d.]+/)?.[0] || 'browser') : ''}
-        </span>
-      </div>
-    </div>
+      {tab === 'legal' && <LegalSection />}
+
+    </SubNav>
   );
 }
 
 function AppUpdateControl({ appUpdate, onCheck, t }) {
   const { status, pct, version } = appUpdate;
+
+  // The Store build is updated by the Store; there is nothing to check on GitHub.
+  if (window.electronAPI?.isStore || status === 'store') {
+    return <span className="text-[11px] text-muted-foreground">{t('settings.updateStore')}</span>;
+  }
 
   if (status === 'checking') {
     return <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> {t('settings.updateChecking')}</span>;

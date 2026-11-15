@@ -26,6 +26,8 @@ import subprocess
 import threading
 import time
 import traceback as _traceback
+import ssl
+import urllib.error
 import urllib.request
 import uuid
 from contextlib import asynccontextmanager
@@ -40,6 +42,8 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
+
+import importer as _importer
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 def _default_data_dir() -> Path:
@@ -144,7 +148,10 @@ DEFAULT_OUTPUT_DIR = (
     os.environ.get("FOLDREEL_DEFAULT_OUTPUT")
     or str(Path.home() / "Downloads" / "Foldreel")
 )
-APP_VERSION = "1.0.0"                                # single source at runtime
+APP_VERSION = "1.1.0"                                # single source at runtime
+# Set by the Electron shell when running as the Microsoft Store package. A Store app is
+# updated by the Store, and must not download and run replacement executables itself.
+IS_STORE = os.environ.get("FOLDREEL_STORE") == "1"
 
 
 def _abs_output(p: Optional[str]) -> str:
@@ -1860,13 +1867,35 @@ def _ver_ge(installed: str, latest: str) -> bool:
     return _num_tuple(installed) >= _num_tuple(latest)
 
 
+def _urlopen(req, timeout: float = 10):
+    """urlopen that survives a TLS verification hiccup.
+
+    Python verifies against the Windows certificate store, which fills in lazily:
+    right after a quiet spell a perfectly valid GitHub certificate can fail with
+    "unable to get issuer certificate" for a few attempts, then work. That made the
+    component update check randomly report "could not check". On that specific
+    failure, retry with the CA bundle that ships with certifi."""
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.URLError as e:
+        if not isinstance(getattr(e, "reason", None), ssl.SSLCertVerificationError):
+            raise
+        try:
+            import certifi
+        except ImportError:
+            raise e
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        return urllib.request.urlopen(req, timeout=timeout, context=ctx)
+
+
 def _cached_fetch(key: str, fn) -> Optional[str]:
     hit = _latest_cache.get(key)
     if hit and time.time() - hit[0] < 3600:
         return hit[1]
     try:
         val = fn() or None
-    except Exception:
+    except Exception as e:
+        log.warning("version lookup %s failed: %s: %s", key, type(e).__name__, e)
         val = None
     # Only a real result is worth an hour of staleness. Caching a failure
     # (a transient network blip, GitHub rate-limiting) the same way would
@@ -1884,18 +1913,22 @@ def _gh_latest_tag(repo: str) -> Optional[str]:
             f"https://api.github.com/repos/{repo}/releases/latest",
             headers={"User-Agent": "Foldreel", "Accept": "application/vnd.github+json"},
         )
-        with urllib.request.urlopen(req, timeout=6) as r:
+        with _urlopen(req, timeout=6) as r:
             return json.loads(r.read()).get("tag_name")
     return _cached_fetch(f"gh:{repo}", fetch)
 
 
 def _ffmpeg_latest() -> Optional[str]:
+    mirror = _gh_latest_tag("GyanD/codexffmpeg")  # same build as gyan.dev, on GitHub's fast CDN
+    if mirror:
+        return mirror
+
     def fetch():
         req = urllib.request.Request(
             "https://www.gyan.dev/ffmpeg/builds/release-version",
             headers={"User-Agent": "Foldreel"},
         )
-        with urllib.request.urlopen(req, timeout=6) as r:
+        with _urlopen(req, timeout=6) as r:
             return r.read().decode("utf-8", "replace").strip()
     return _cached_fetch("ffmpeg:gyan", fetch)
 
@@ -1934,22 +1967,10 @@ def _aria2c_version(exe: str) -> str:
         return ""
 
 
-def _gdl_pretty_latest(installed: str, latest: str) -> str:
-    """gdl-org/builds tags its releases with a bare date (e.g. "2026.09.16"),
-    with no version number anywhere in the release itself - the "1.32.x-dev"
-    prefix only exists inside the built binary, found out by actually running
-    it. Borrow that prefix from the currently-installed copy (which rarely
-    changes day to day) so "latest" reads the same shape as "have" instead of
-    a date on its own that looks unrelated to the version number next to it.
+def find_tool(name: str, check: bool = False) -> dict:
+    """Resolution + version + update state. name: gallery-dl | ffmpeg | yt-dlp | aria2c.
+    A bundled copy is only compared against upstream when `check` is set (the user asked).
     """
-    if not latest or not _DATE_RE.fullmatch(latest):
-        return latest
-    m = re.match(r"^([\d.]+(?:-dev)?):", installed or "")
-    return f"{m.group(1)}:{latest}" if m else latest
-
-
-def find_tool(name: str) -> dict:
-    """Resolution + version + update state. name: gallery-dl | ffmpeg | yt-dlp | aria2c"""
     downloaded = tool_path(name)
     on_path = None if downloaded else (shutil.which(name) or shutil.which(name + ".exe"))
     exe = downloaded or on_path
@@ -1965,9 +1986,8 @@ def find_tool(name: str) -> dict:
     if not exe:
         avail = "install" if CURRENT_OS in TOOL_SOURCES.get(name, {}) else "unsupported"
         latest_display = None
-    elif bundled:
-        # Ships with the app itself - no separate online version to compare
-        # against or update in place; the next app release carries a newer copy.
+    elif bundled and not check:
+        # Ships with the app itself - nothing to compare unless the user asks.
         avail = "current"
         latest_display = None
     else:
@@ -1978,7 +1998,7 @@ def find_tool(name: str) -> dict:
             avail = "current"             # up to date
         else:
             avail = "update"
-        latest_display = _gdl_pretty_latest(ver, latest) if name == "gallery-dl" else latest
+        latest_display = latest   # shown as published: gdl-org tags builds by date only
     return {
         "name": name,
         "found": bool(exe),
@@ -2014,7 +2034,7 @@ TOOL_SOURCES = {
         "macos":   ("https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos", "exe"),
     },
     "ffmpeg": {
-        "windows": ("https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip", "zip"),
+        "windows": (None, "zip"),
         "linux":   ("https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
                     "ffmpeg-master-latest-linux64-gpl.tar.xz", "tarxz"),
         "macos":   (None, "macos-ffmpeg-pair"),
@@ -2048,7 +2068,7 @@ def _resolve_aria2c_url() -> str:
             "https://api.github.com/repos/aria2/aria2/releases/latest",
             headers={"User-Agent": "Foldreel", "Accept": "application/vnd.github+json"},
         )
-        with urllib.request.urlopen(req, timeout=8) as r:
+        with _urlopen(req, timeout=8) as r:
             data = json.loads(r.read())
         for asset in data.get("assets", []):
             if re.search(r"win-64bit.*\.zip$", asset.get("name", "")):
@@ -2071,7 +2091,7 @@ def _resolve_macos_ffmpeg_urls() -> dict:
             f"https://evermeet.cx/ffmpeg/info/{binary}/release",
             headers={"User-Agent": "Foldreel"},
         )
-        with urllib.request.urlopen(req, timeout=8) as r:
+        with _urlopen(req, timeout=8) as r:
             return json.loads(r.read())["download"]["zip"]["url"]
     urls = {
         "ffmpeg": _cached_fetch("ffmpeg:evermeet:ffmpeg", lambda: fetch("ffmpeg")),
@@ -2082,11 +2102,58 @@ def _resolve_macos_ffmpeg_urls() -> dict:
     return urls
 
 
+def _gh_asset_digest(url: str) -> Optional[str]:
+    """The SHA-256 GitHub publishes for a release asset, given its github.com
+    download URL. None for any other host or when GitHub does not list one.
+    Deliberately not cached: "latest" can move between the lookup and the download."""
+    m = re.match(r"https://github\.com/([^/]+/[^/]+)/releases/(?:download/([^/]+)|latest/download)/([^/?#]+)", url)
+    if not m:
+        return None
+    repo, tag, name = m.groups()
+    api_url = f"https://api.github.com/repos/{repo}/releases/" + (f"tags/{tag}" if tag else "latest")
+    try:
+        req = urllib.request.Request(api_url, headers={"User-Agent": "Foldreel", "Accept": "application/vnd.github+json"})
+        with _urlopen(req, timeout=8) as r:
+            data = json.loads(r.read())
+    except Exception:
+        return None
+    for asset in data.get("assets", []):
+        if asset.get("name") == name:
+            digest = asset.get("digest") or ""
+            return digest.split(":", 1)[1].lower() if digest.startswith("sha256:") else None
+    return None
+
+
+def _sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _resolve_ffmpeg_url() -> str:
+    """The essentials build from Gyan's GitHub mirror (consistently fast), falling
+    back to gyan.dev itself."""
+    def fetch():
+        req = urllib.request.Request(
+            "https://api.github.com/repos/GyanD/codexffmpeg/releases/latest",
+            headers={"User-Agent": "Foldreel", "Accept": "application/vnd.github+json"},
+        )
+        with _urlopen(req, timeout=8) as r:
+            data = json.loads(r.read())
+        for asset in data.get("assets", []):
+            if re.search(r"essentials_build\.zip$", asset.get("name", "")):
+                return asset["browser_download_url"]
+        return None
+    return _cached_fetch("ffmpeg:asset_url", fetch) or "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+
+
 def _download_to(url: str, dest: Path, on_progress=None):
     import urllib.request
 
     req = urllib.request.Request(url, headers={"User-Agent": "Foldreel"})
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with _urlopen(req, timeout=60) as resp:
         total = int(resp.headers.get("Content-Length") or 0)
         got = 0
         last = 0.0
@@ -2134,7 +2201,7 @@ def _install_tool_blocking(name: str, loop):
     url, kind = sources[CURRENT_OS]
     if url is None:
         try:
-            url = _resolve_aria2c_url() if name == "aria2c" else None
+            url = {"aria2c": _resolve_aria2c_url, "ffmpeg": _resolve_ffmpeg_url}.get(name, lambda: None)()
         except Exception as e:
             _tool_state[name] = {"status": "error", "error": str(e)}
             return
@@ -2175,6 +2242,13 @@ def _install_tool_blocking(name: str, loop):
         _download_to(url, tmp, lambda p: emit(status="downloading", pct=p))
 
         emit(status="installing", pct=100)
+        expected = _gh_asset_digest(url)
+        if expected and _sha256_of(tmp) != expected:
+            tmp.unlink(missing_ok=True)
+            raise RuntimeError("The download did not match its published checksum, so it was discarded.")
+        if kind == "exe" and os.name == "nt" and not _run_version(str(tmp)):
+            tmp.unlink(missing_ok=True)
+            raise RuntimeError("The downloaded file would not run, so it was not installed.")
         if kind == "exe":
             dest = TOOLS_DIR / f"{name}{_EXE}"
             _retry_fs(lambda: shutil.move(str(tmp), str(dest)))
@@ -2206,10 +2280,58 @@ def _install_tool_blocking(name: str, loop):
                         os.chmod(dest, 0o755)
             tmp.unlink(missing_ok=True)
 
+        _mark_managed(name)
         emit(status="done", pct=100)
+    except PermissionError:
+        emit(status="error", error="The current copy is in use. Try again when no downloads are running.")
     except Exception as e:
         log.error("tool install %s failed: %s", name, e)
         emit(status="error", error=str(e))
+
+
+# Copies placed in tools/ by an in-app update are recorded with the app version
+# that installed them. When the app itself is upgraded its bundled tools are newer
+# than any copy fetched before, so those copies are removed rather than left to
+# shadow the bundle forever. Files the user dropped in by hand are never recorded,
+# so never touched.
+_MANAGED_FILE = TOOLS_DIR / ".managed.json"
+_MANAGED_BINARIES = {"gallery-dl": ["gallery-dl"], "yt-dlp": ["yt-dlp"], "ffmpeg": ["ffmpeg", "ffprobe"], "aria2c": ["aria2c"]}
+
+
+def _read_managed() -> dict:
+    try:
+        data = json.loads(_MANAGED_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _mark_managed(name: str) -> None:
+    data = _read_managed()
+    data[name] = APP_VERSION
+    try:
+        _MANAGED_FILE.write_text(json.dumps(data), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _cleanup_stale_managed_tools() -> None:
+    data = _read_managed()
+    keep = {}
+    for name, version in data.items():
+        if version == APP_VERSION:
+            keep[name] = version
+            continue
+        for base in _MANAGED_BINARIES.get(name, []):
+            try:
+                (TOOLS_DIR / f"{base}{_EXE}").unlink(missing_ok=True)
+            except OSError:
+                keep[name] = version  # in use right now; try again next launch
+    if keep != data:
+        try:
+            _MANAGED_FILE.write_text(json.dumps(keep), encoding="utf-8")
+        except OSError:
+            pass
 
 
 # ── models ─────────────────────────────────────────────────────────────────
@@ -2296,6 +2418,7 @@ class CookieImportIn(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    _cleanup_stale_managed_tools()
     await manager.start()
     asyncio.create_task(_watch_loop())
     log.info("Foldreel backend ready on :%d - gallery-dl: %s", PORT, gdl_bin())
@@ -2415,10 +2538,11 @@ def _import_cookie_text(text: str, name_stem: str) -> dict:
     if not rows:
         raise HTTPException(400, "No cookies found. Expected Netscape cookies.txt format.")
     dest = COOKIES_DIR / _safe_cookie_name(name_stem)
+    replaced = dest.exists()
     dest.write_text(text, encoding="utf-8")
     merge_cookie_folder()
     write_gdl_config()
-    return {"ok": True, "file": dest.name,
+    return {"ok": True, "file": dest.name, "replaced": replaced,
             "domains": sorted(_parse_netscape_domains(dest)), "cookies": len(rows)}
 
 
@@ -2455,18 +2579,29 @@ def cookies_delete(name: str):
 
 
 @api.get("/tools")
-def list_tools():
-    out = {}
-    for name in ("gallery-dl", "yt-dlp", "ffmpeg", "aria2c"):
-        info = find_tool(name)
+def list_tools(check: bool = False):
+    """Versions of the four components. With check=1 each is compared against the
+    newest upstream release (fresh, not from the hour-long cache), in parallel."""
+    from concurrent.futures import ThreadPoolExecutor
+    names = ("gallery-dl", "yt-dlp", "ffmpeg", "aria2c")
+    if check:
+        _latest_cache.clear()
+
+    def one(name):
+        info = find_tool(name, check=check)
         info["approx_mb"] = TOOL_APPROX_MB.get(name)
         info["progress"] = _tool_state.get(name, {})
-        out[name] = info
-    return out
+        info["can_install"] = (not IS_STORE) and CURRENT_OS in TOOL_SOURCES.get(name, {})
+        return info
+
+    with ThreadPoolExecutor(max_workers=len(names)) as pool:
+        return dict(zip(names, pool.map(one, names)))
 
 
 @api.post("/tools/{name}/install")
 async def install_tool(name: str):
+    if IS_STORE:
+        raise HTTPException(403, "Components are updated with the app in the Microsoft Store.")
     if name not in TOOL_SOURCES:
         raise HTTPException(400, f"Unknown tool '{name}'")
     if _tool_state.get(name, {}).get("status") in ("downloading", "installing"):
@@ -2805,10 +2940,89 @@ class ExtensionCookiesIn(BaseModel):
 # already has the browser's own cookies for the active tab's site via the
 # "cookies" permission, so it can hand Foldreel a ready-made cookies.txt
 # directly instead of the user needing a second, unrelated extension.
+def _extension_cookie_stem(domain: Optional[str]) -> str:
+    return _SAFE_NAME.sub("-", (domain or "cookies").strip().lstrip(".")).strip("-.") or "cookies"
+
+
 @api.post("/extension/cookies")
 def extension_cookies(body: ExtensionCookiesIn):
-    stem = _SAFE_NAME.sub("-", (body.domain or "cookies").strip().lstrip(".")).strip("-.") or "cookies"
-    return _import_cookie_text(body.text, stem)
+    return _import_cookie_text(body.text, _extension_cookie_stem(body.domain))
+
+
+# Lets the extension say "Foldreel already has N cookies for this site, sending
+# will replace them" before the user commits, instead of only finding out after.
+@api.get("/extension/cookies")
+def extension_cookies_status(domain: str = Query(..., max_length=253)):
+    path = COOKIES_DIR / _safe_cookie_name(_extension_cookie_stem(domain))
+    if not path.is_file():
+        return {"exists": False, "file": path.name}
+    rows = list(_cookie_lines(path.read_text(encoding="utf-8", errors="replace")))
+    updated = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+    return {"exists": True, "file": path.name, "cookies": len(rows), "updated_at": updated}
+
+
+# ── Import from Grabbr (or another Foldreel) ─────────────────────────────────
+# Read-only against the old install: see importer.py. Grabbr's own backend
+# listens on 8766; if it is still up, both apps would run the same watches.
+def _import_dest() -> "_importer.Dest":
+    return _importer.Dest(
+        db_path=DB_PATH, archive_path=ARCHIVE_PATH, cookies_dir=COOKIES_DIR,
+        job_log_dir=JOB_LOG_DIR, cache_path=CACHE_PATH, backup_dir=BASE_DIR / "backups",
+    )
+
+
+def _legacy_app_running() -> bool:
+    try:
+        with _urlopen("http://127.0.0.1:8766/api/", timeout=0.5) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+class ImportPathIn(BaseModel):
+    path: str
+
+
+class ImportRunIn(BaseModel):
+    path: str
+    include: Dict[str, bool] = {}
+    connect_folder: bool = True
+
+
+@api.get("/import/detect")
+def import_detect():
+    found = []
+    for folder in _importer.candidate_folders(os.environ.get("APPDATA") or "", exclude=BASE_DIR):
+        try:
+            found.append(_importer.inspect_source(folder, this_install=BASE_DIR))
+        except _importer.ImportFailure:
+            continue
+    return {"sources": found, "source_running": _legacy_app_running()}
+
+
+@api.post("/import/inspect")
+def import_inspect(body: ImportPathIn):
+    try:
+        info = _importer.inspect_source(Path(body.path), this_install=BASE_DIR)
+    except _importer.ImportFailure as e:
+        raise HTTPException(400, str(e))
+    return {**info, "source_running": _legacy_app_running()}
+
+
+@api.post("/import/run")
+def import_run(body: ImportRunIn):
+    try:
+        with _db_lock:  # nothing else writes the database while it is being merged into
+            result = _importer.run_import(
+                Path(body.path), _import_dest(), body.include,
+                connect_folder=body.connect_folder, this_install=BASE_DIR,
+            )
+    except _importer.ImportFailure as e:
+        raise HTTPException(400, str(e))
+    merge_cookie_folder()
+    write_gdl_config()
+    log.info("Imported from %s: %s", body.path, {k: v for k, v in result.items() if k != "backup"})
+    return result
 
 
 @api.get("/jobs")
@@ -2833,8 +3047,11 @@ def get_job_log(job_id: str):
     row = _job_row(job_id)
     if not row:
         raise HTTPException(404, "Job not found")
-    p = Path(row.get("log_path") or "")
-    return {"log": p.read_text(encoding="utf-8", errors="replace") if p.exists() else ""}
+    raw = row.get("log_path") or ""
+    # Path("") is "." and "exists", so a job with no log (queued, imported)
+    # used to raise IsADirectoryError here.
+    p = Path(raw) if raw else None
+    return {"log": p.read_text(encoding="utf-8", errors="replace") if p and p.is_file() else ""}
 
 
 _IMG_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".avif", ".jxl", ".svg"}
@@ -2897,21 +3114,35 @@ def _ffmpeg_bin() -> Optional[str]:
     return tool_path("ffmpeg") or shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
 
 
-def _video_thumb(p: Path) -> Optional[Path]:
+_THUMB_SIZES = (320, 640, 1080, 1600)
+
+
+def _thumb_size(requested: int) -> int:
+    """Snap a requested size up to one of a few buckets, so the thumbs/ cache
+    holds at most four renditions of a file however the UI asks."""
+    for s in _THUMB_SIZES:
+        if requested <= s:
+            return s
+    return _THUMB_SIZES[-1]
+
+
+def _video_thumb(p: Path, size: int = 320) -> Optional[Path]:
     """Pull a single frame from a video with ffmpeg, cached under thumbs/.
     Returns the png path, or None if ffmpeg is missing or the grab fails."""
     try:
         st = p.stat()
     except OSError:
         return None
-    key = hashlib.sha1(f"{p.resolve()}|{st.st_mtime_ns}|{st.st_size}".encode()).hexdigest()
+    # The default size keeps the original cache key, so existing thumbnails stay valid.
+    suffix = "" if size == 320 else f"|{size}"
+    key = hashlib.sha1(f"{p.resolve()}|{st.st_mtime_ns}|{st.st_size}{suffix}".encode()).hexdigest()
     out = THUMBS_DIR / f"{key}.png"
     if out.exists():
         return out if out.stat().st_size > 0 else None
     ff = _ffmpeg_bin()
     if not ff:
         return None
-    common = ["-frames:v", "1", "-vf", "scale=320:-2", "-an", str(out)]
+    common = ["-frames:v", "1", "-vf", f"scale={size}:-2", "-an", str(out)]
     # A 1s seek gives a livelier frame; fall back to frame 0 for very short clips.
     for pre in (["-ss", "1", "-i", str(p)], ["-i", str(p)]):
         try:
@@ -2927,7 +3158,7 @@ def _video_thumb(p: Path) -> Optional[Path]:
     return None
 
 
-def _image_thumb(p: Path) -> Optional[Path]:
+def _image_thumb(p: Path, size: int = 320) -> Optional[Path]:
     """Resized, cached copy of an image, under thumbs/ - serving a
     multi-megapixel phone photo at ~32px CSS size with no resize is what
     actually made thumbnails feel laggy: the browser was downloading and
@@ -2938,7 +3169,8 @@ def _image_thumb(p: Path) -> Optional[Path]:
         st = p.stat()
     except OSError:
         return None
-    key = hashlib.sha1(f"{p.resolve()}|{st.st_mtime_ns}|{st.st_size}|t".encode()).hexdigest()
+    suffix = "" if size == 320 else f"|{size}"
+    key = hashlib.sha1(f"{p.resolve()}|{st.st_mtime_ns}|{st.st_size}|t{suffix}".encode()).hexdigest()
     out = THUMBS_DIR / f"{key}.jpg"
     if out.exists():
         return out if out.stat().st_size > 0 else None
@@ -2947,7 +3179,7 @@ def _image_thumb(p: Path) -> Optional[Path]:
         from PIL import Image
         with Image.open(p) as im:
             im.load()
-            im.thumbnail((320, 320))
+            im.thumbnail((size, size))
             im.convert("RGB").save(out, "JPEG", quality=82)
     except Exception:
         return None
@@ -3055,7 +3287,12 @@ _VIDEO_IN_EXT = {
     "mp4", "mov", "webm", "mkv", "avi", "m4v", "flv", "wmv", "mpg", "mpeg", "3gp", "ogv", "hevc",
 }
 _VIDEO_TARGETS = {"mp4", "webm", "gif"}
+# Video -> still image: grab one frame. Instagram and TikTok photo posts often
+# arrive as a one-frame or slideshow mp4, so "make this a picture again" is a
+# real need, not an edge case.
+_VIDEO_TO_IMAGE_TARGETS = {"jpg", "png", "webp"}
 _PHOTO_QUALITY = {"high": 92, "medium": 80, "low": 62}
+_FRAME_JPEG_Q = {"high": 2, "medium": 5, "low": 9}  # ffmpeg -q:v, lower is better
 _VIDEO_CRF = {"high": 18, "medium": 23, "low": 28}
 
 _HEIF_REGISTERED = False
@@ -3133,6 +3370,42 @@ def _convert_video(src: Path, dest: Path, target: str, quality: str) -> None:
         )
         if r.returncode != 0 or not tmp.exists():
             raise RuntimeError((r.stderr or b"").decode("utf-8", "replace")[-2000:] or "ffmpeg failed")
+        os.replace(tmp, dest)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _video_frame_to_image(src: Path, dest: Path, target: str, quality: str, at: float = 0.0) -> None:
+    """Writes the frame at `at` seconds as an image. Same temp-file-then-replace
+    shape as the other converters."""
+    ff = _ffmpeg_bin()
+    if not ff:
+        raise RuntimeError("FFmpeg is missing from this install - try reinstalling Foldreel")
+    if target not in _VIDEO_TO_IMAGE_TARGETS:
+        raise ValueError(f"unsupported image target: {target}")
+    tmp = dest.with_name(f"{dest.stem}.foldreel-tmp{dest.suffix}")
+    # -ss before -i seeks by keyframe first, then decodes forward to the exact
+    # frame, so it is both fast and accurate on long videos.
+    argv = [ff, "-y", "-loglevel", "error", "-ss", f"{max(at, 0.0):.3f}", "-i", str(src),
+            "-frames:v", "1", "-an"]
+    if target == "jpg":
+        argv += ["-q:v", str(_FRAME_JPEG_Q.get(quality, 2))]
+    elif target == "webp":
+        argv += ["-quality", str(_PHOTO_QUALITY.get(quality, 92))]
+    argv.append(str(tmp))
+    try:
+        r = subprocess.run(
+            argv, capture_output=True, timeout=120,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        err = (r.stderr or b"").decode("utf-8", "replace")
+        # Seeking past the end is not a crash: ffmpeg decodes nothing and either
+        # exits 0 or exits non-zero after a screenful of unrelated encoder
+        # warnings. Either way the useful message is the plain one.
+        if "Nothing was written into output file" in err or (r.returncode == 0 and not tmp.exists()):
+            raise RuntimeError("No frame at that time. The video may be shorter than the time you chose.")
+        if r.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+            raise RuntimeError(err[-2000:] or "ffmpeg failed")
         os.replace(tmp, dest)
     finally:
         tmp.unlink(missing_ok=True)
@@ -3223,6 +3496,12 @@ class ConversionManager:
                     raise FileNotFoundError(f"Source file no longer exists: {src}")
                 if row["kind"] == "photo":
                     await asyncio.to_thread(_convert_photo, src, dest, row["target"], row["quality"])
+                elif row["target"] in _VIDEO_TO_IMAGE_TARGETS:
+                    try:
+                        at = float((json.loads(row.get("options_json") or "{}")).get("start") or 0.0)
+                    except Exception:
+                        at = 0.0
+                    await asyncio.to_thread(_video_frame_to_image, src, dest, row["target"], row["quality"], at)
                 elif row["target"] == "gif":
                     try:
                         opts = json.loads(row.get("options_json") or "{}")
@@ -3287,7 +3566,7 @@ async def create_conversions(body: ConvertIn):
         kind = convert_kind_for(src.suffix)
         if kind is None:
             raise HTTPException(400, f"Unsupported file type: {src.name}")
-        targets = _PHOTO_TARGETS if kind == "photo" else _VIDEO_TARGETS
+        targets = _PHOTO_TARGETS if kind == "photo" else (_VIDEO_TARGETS | _VIDEO_TO_IMAGE_TARGETS)
         if item.target not in targets:
             raise HTTPException(400, f"Unsupported target '{item.target}' for {kind}")
         conv_id = uuid.uuid4().hex
@@ -3308,6 +3587,8 @@ async def create_conversions(body: ConvertIn):
                 "start": max(0.0, item.start) if item.start else 0.0,
                 "end": max(0.0, item.end) if item.end else None,
             }
+        elif kind == "video" and item.target in _VIDEO_TO_IMAGE_TARGETS:
+            options = {"start": max(0.0, item.start) if item.start else 0.0}  # the frame's time
         db_run(
             """INSERT INTO conversions
                (id, src_path, src_name, src_size, kind, target, quality, options_json, status, dest_path, created_at)
@@ -3340,19 +3621,20 @@ def clear_finished_conversions():
 
 
 @api.get("/thumb")
-def thumb(path: str):
+def thumb(path: str, size: int = Query(320, ge=64, le=4000)):
+    size = _thumb_size(size)
     p = Path(path)
     ext = p.suffix.lower()
     if not p.is_file() or not _under_output(p) or ext not in (_IMG_EXT | _VID_EXT):
         raise HTTPException(404, "Not found")
     if ext in _VID_EXT:
-        frame = _video_thumb(p)
+        frame = _video_thumb(p, size)
         if not frame:
             raise HTTPException(404, "No thumbnail")
         return FileResponse(str(frame), media_type="image/png")
     if ext == ".svg":  # already tiny + vector; Pillow can't open it anyway
         return FileResponse(str(p))
-    resized = _image_thumb(p)
+    resized = _image_thumb(p, size)
     if not resized:
         return FileResponse(str(p))  # unresized fallback beats no thumbnail at all
     return FileResponse(str(resized), media_type="image/jpeg")
@@ -3597,7 +3879,8 @@ def organize_stat_paths(body: StatPathsIn):
 
 
 @api.get("/organize/thumb")
-def organize_thumb(path: str):
+def organize_thumb(path: str, size: int = Query(320, ge=64, le=4000)):
+    size = _thumb_size(size)
     # Same idea as /thumb, minus the _under_output check - both bulk rename
     # and Convert deliberately work on any file the user picks, not just
     # Foldreel's own output folder.
@@ -3606,13 +3889,13 @@ def organize_thumb(path: str):
     if not p.is_file() or ext not in (_IMG_EXT | _VID_EXT):
         raise HTTPException(404, "Not found")
     if ext in _VID_EXT:
-        frame = _video_thumb(p)
+        frame = _video_thumb(p, size)
         if not frame:
             raise HTTPException(404, "No thumbnail")
         return FileResponse(str(frame), media_type="image/png")
     if ext == ".svg":
         return FileResponse(str(p))
-    resized = _image_thumb(p)
+    resized = _image_thumb(p, size)
     if not resized:
         return FileResponse(str(p))
     return FileResponse(str(resized), media_type="image/jpeg")

@@ -1,147 +1,57 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Foldreel</title>
+<link rel="stylesheet" href="ui.css">
 <style>
-  :root {
-    --accent: #ff5c5c;
-    --accent-ink: #1a1210;
-    --bg: #0a0a0a;
-    --surface: #131313;
-    --surface-2: #171717;
-    --border: #262626;
-    --border-soft: #202020;
-    --text: #fafafa;
-    --muted: #8a8a8a;
-    --radius: 10px;
-  }
-  * { box-sizing: border-box; }
-  body {
-    position: relative;
-    font-family: -apple-system, "Segoe UI", sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    margin: 0;
-    padding: 0 0 16px;
-    width: 304px;
-    animation: bodyIn .12s ease-out;
-  }
-  #version {
-    position: absolute; bottom: 6px; right: 12px;
-    font-size: 10px; color: #52525b; user-select: none; pointer-events: none;
-  }
-  @keyframes bodyIn { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes revealIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+  body { width: 344px; }
+  .head { display: flex; align-items: center; gap: 10px; padding: 14px 16px 12px; }
+  .logo { width: 28px; height: 28px; border-radius: 7px; flex: none; }
+  .head h1 { flex: 1; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+  main { padding: 0 16px 6px; }
 
-  /* A slightly lighter "strip" behind the header, same layered-darkness idea
-     as the app's sidebar-vs-content split, instead of one flat background. */
-  .header {
-    display: flex; align-items: center; gap: 9px;
-    background: var(--surface); border-bottom: 1px solid var(--border-soft);
-    padding: 13px 18px;
-  }
-  .brand-badge {
-    width: 26px; height: 26px; border-radius: 8px; flex: none;
-    background: color-mix(in srgb, var(--accent) 15%, transparent);
-    display: flex; align-items: center; justify-content: center;
-  }
-  .brand-badge img { width: 15px; height: 15px; display: block; }
-  h1 { font-size: 12.5px; font-weight: 600; letter-spacing: .01em; margin: 0; flex: 1; }
+  .page { margin-bottom: 12px; min-width: 0; }
+  .page-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .page-url { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  .body { padding: 14px 18px 0; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .field code { display: block; margin-top: 6px; font: 11.5px var(--mono); color: var(--muted); overflow-wrap: anywhere; max-height: 3.2em; overflow: hidden; }
+  .row { display: flex; gap: 8px; margin-bottom: 12px; }
 
-  #conn { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 11px; margin: 0 0 14px; width: fit-content; }
-  #conn .dot { width: 6px; height: 6px; border-radius: 50%; background: #52525b; flex: none; }
-  #conn.ok .dot { background: #34d399; animation: pulseDot 2s ease-in-out infinite; }
-  #conn.bad .dot { background: #f87171; }
-  #conn.warn .dot { background: #f59e0b; }
-  @keyframes pulseDot {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, .45); }
-    50% { box-shadow: 0 0 0 4px rgba(52, 211, 153, 0); }
-  }
+  #pair p { color: var(--muted); margin-bottom: 10px; }
+  #pair .btn { margin-top: 8px; }
 
-  p#url { font-size: 11px; font-family: "JetBrains Mono", Consolas, monospace; color: #a1a1aa; margin: 0 0 13px; word-break: break-all; line-height: 1.45; max-height: 3.6em; overflow: hidden; }
-
-  button { font-family: inherit; cursor: pointer; transition: transform .08s ease, filter .12s ease, background-color .12s ease, border-color .12s ease; }
-  button:active:not(:disabled) { transform: scale(.97); }
-  button:disabled { cursor: default; }
-
-  select, input[type="text"] {
-    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
-    padding: 7px 9px; font-size: 12px; font-family: inherit;
-    transition: border-color .12s ease, box-shadow .12s ease;
-  }
-  select:focus, input[type="text"]:focus {
-    outline: none; border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 10%, transparent);
-  }
-
-  .row { display: flex; gap: 8px; margin-bottom: 13px; animation: revealIn .16s ease-out; }
-  .row[hidden] { display: none; }
-  .row select { flex: 1; }
-
-  button#send, button#pair-connect {
-    width: 100%; background: var(--accent); color: var(--accent-ink); border: none;
-    border-radius: var(--radius); padding: 10px 14px; font-size: 12.5px; font-weight: 700; letter-spacing: .01em;
-  }
-  button#send:hover:not(:disabled), button#pair-connect:hover:not(:disabled) { filter: brightness(1.08); }
-  button#send:disabled, button#pair-connect:disabled { opacity: .5; }
-
-  button#send-cookies {
-    width: 100%; margin-top: 8px; background: var(--surface-2); color: var(--muted);
-    border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px;
-    font-size: 11.5px; font-weight: 600;
-  }
-  button#send-cookies:hover:not(:disabled) { color: var(--text); border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
-  button#send-cookies:disabled { opacity: .5; }
-
-  #status { margin-top: 11px; font-size: 12px; min-height: 16px; }
-  .ok { color: #34d399; }
-  .bad { color: #f87171; }
-
-  #pair { animation: revealIn .16s ease-out; }
-  #pair[hidden] { display: none; }
-  #pair input { width: 100%; margin-bottom: 10px; font-family: "JetBrains Mono", Consolas, monospace; }
-
-  #send-area { animation: revealIn .16s ease-out; }
-  #send-area[hidden] { display: none; }
-
-  /* A left accent bar instead of a boxed card - the same device the app
-     uses on job/queue rows to flag something as worth a second look,
-     without the visual weight of a full bordered block. */
-  #media-detect {
-    margin: 0 0 14px; padding: 2px 0 2px 11px;
-    border-left: 2px solid var(--accent);
-    animation: revealIn .16s ease-out;
-  }
-  #media-detect[hidden] { display: none; }
-  #media-detect label { display: block; font-size: 10.5px; letter-spacing: .04em; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; }
-  #media-detect select { width: 100%; }
-  #media-detect code { display: block; font-family: "JetBrains Mono", Consolas, monospace; color: #71717a; word-break: break-all; margin-top: 7px; line-height: 1.4; }
-
-  a#disconnect-link { display: inline-block; margin-top: 12px; font-size: 11px; color: #71717a; text-decoration: none; transition: color .12s ease; animation: revealIn .16s ease-out; }
-  a#disconnect-link[hidden] { display: none; }
-  a#disconnect-link:hover { color: var(--muted); text-decoration: underline; }
+  .status { margin-top: 10px; }
+  footer { display: flex; align-items: center; gap: 14px; padding: 8px 16px 14px; font-size: 12px; }
+  footer .spacer { flex: 1; }
+  #version { color: var(--muted); }
 </style>
 </head>
 <body>
-  <div class="header">
-    <span class="brand-badge"><img src="icons/icon32.png" alt="" /></span>
-    <h1>Send to Foldreel</h1>
-  </div>
+  <header class="head">
+    <img class="logo" src="icons/icon48.png" alt="">
+    <h1>Foldreel</h1>
+    <span id="conn" class="pill"><span class="dot" aria-hidden="true"></span><span id="conn-text">Checking…</span></span>
+  </header>
 
-  <div class="body">
-    <div id="conn"><span class="dot" aria-hidden="true"></span><span id="conn-text">Checking connection…</span></div>
+  <main>
+    <form id="pair" hidden>
+      <p>In Foldreel, open Settings, then Browser extension, turn it on, and paste the pairing code.</p>
+      <label class="sr" for="pair-code" style="position:absolute;left:-9999px">Pairing code</label>
+      <input id="pair-code" type="text" class="mono" placeholder="Pairing code" autocomplete="off" spellcheck="false">
+      <button id="pair-connect" class="btn primary block" type="submit">Connect</button>
+    </form>
 
-    <div id="pair" hidden>
-      <input id="pair-code" type="text" placeholder="paste code here" autocomplete="off" spellcheck="false" />
-      <button id="pair-connect">Connect</button>
-    </div>
+    <section id="send-area" hidden>
+      <div class="page">
+        <p id="page-title" class="page-title"></p>
+        <p id="url" class="page-url"></p>
+      </div>
 
-    <div id="send-area" hidden>
-      <p id="url">Loading…</p>
-      <div id="media-detect" hidden>
+      <div id="media-detect" class="field" hidden>
         <label for="media-use">Link to send</label>
         <select id="media-use">
           <option value="page" selected>This page's link</option>
@@ -149,6 +59,7 @@
         </select>
         <code id="media-url"></code>
       </div>
+
       <div class="row" id="yt-row" hidden>
         <select id="quality" aria-label="Video quality">
           <option value="best">Best quality</option>
@@ -162,14 +73,42 @@
           <option value="mp3">MP3 (audio)</option>
         </select>
       </div>
-      <button id="send">Send to Foldreel</button>
-      <button id="send-cookies" type="button">Send cookies for this site</button>
-    </div>
 
-    <div id="status"></div>
+      <button id="send" class="btn primary block" type="button">Send to Foldreel</button>
+
+      <h2 id="site-heading" class="group-title">This site</h2>
+      <div class="list" role="group" aria-labelledby="site-heading">
+        <div class="item">
+          <div class="item-text">
+            <span class="item-title" id="hover-title">Floating download button</span>
+            <span class="item-desc" id="hover-desc">Shown on images and videos</span>
+          </div>
+          <label class="switch">
+            <input id="hover-site" type="checkbox" role="switch" aria-labelledby="hover-title" aria-describedby="hover-desc">
+            <span class="track" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div class="item">
+          <div class="item-text">
+            <span class="item-title" id="cookie-title">Login cookies</span>
+            <span class="item-desc" id="cookie-desc">Checking…</span>
+          </div>
+          <button id="send-cookies" class="btn small" type="button" aria-describedby="cookie-desc">Add</button>
+        </div>
+      </div>
+    </section>
+
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+  </main>
+
+  <footer>
+    <a href="#" id="open-settings">Settings</a>
     <a href="#" id="disconnect-link" hidden>Disconnect</a>
-  </div>
-  <span id="version"></span>
+    <span class="spacer"></span>
+    <span id="version"></span>
+  </footer>
+
+  <script src="prefs.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

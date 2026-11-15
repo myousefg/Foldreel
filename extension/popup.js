@@ -1,12 +1,30 @@
 // Popup for the toolbar button. Runs in its own context (separate from
 // background.js's service worker), so it reaches the pairing secret and
-// Foldreel's API only through a message to the background script - see the
-// onMessage listener in background.js. Pairing itself talks to Foldreel's
-// /api/extension/ping directly (same as options.js), since storing the
-// secret is a plain chrome.storage.local write, not something that needs
-// to go through the background worker.
+// Foldreel's API only through messages to the background script. Pairing
+// itself talks to /api/extension/ping directly, since storing the secret is a
+// plain chrome.storage.local write.
 
 const API_HOST = 'http://127.0.0.1:8767';
+
+const $ = (id) => document.getElementById(id);
+const el = {
+  conn: $('conn'), connText: $('conn-text'),
+  pair: $('pair'), pairCode: $('pair-code'), pairConnect: $('pair-connect'),
+  sendArea: $('send-area'), pageTitle: $('page-title'), url: $('url'),
+  mediaDetect: $('media-detect'), mediaUse: $('media-use'), mediaUrl: $('media-url'),
+  ytRow: $('yt-row'), quality: $('quality'), format: $('format'),
+  send: $('send'), siteHeading: $('site-heading'),
+  hoverSite: $('hover-site'), hoverDesc: $('hover-desc'),
+  cookieDesc: $('cookie-desc'), sendCookies: $('send-cookies'),
+  status: $('status'), openSettings: $('open-settings'),
+  disconnect: $('disconnect-link'), version: $('version'),
+};
+
+el.version.textContent = `v${chrome.runtime.getManifest().version}`;
+
+let currentUrl = '';
+let currentHost = '';
+let capturedMediaUrl = '';
 
 function isYoutube(url) {
   try {
@@ -17,100 +35,126 @@ function isYoutube(url) {
   }
 }
 
-const urlEl = document.getElementById('url');
-const ytRow = document.getElementById('yt-row');
-const qualityEl = document.getElementById('quality');
-const formatEl = document.getElementById('format');
-const sendArea = document.getElementById('send-area');
-const sendBtn = document.getElementById('send');
-const sendCookiesBtn = document.getElementById('send-cookies');
-const statusEl = document.getElementById('status');
-const connEl = document.getElementById('conn');
-const connTextEl = document.getElementById('conn-text');
-const pairSection = document.getElementById('pair');
-const pairCodeEl = document.getElementById('pair-code');
-const pairConnectBtn = document.getElementById('pair-connect');
-const disconnectLink = document.getElementById('disconnect-link');
-const mediaDetect = document.getElementById('media-detect');
-const mediaUseEl = document.getElementById('media-use');
-const mediaUrlEl = document.getElementById('media-url');
-const versionEl = document.getElementById('version');
-
-versionEl.textContent = `v${chrome.runtime.getManifest().version}`;
-
 function setStatus(text, kind) {
-  statusEl.textContent = text;
-  statusEl.className = kind || '';
+  el.status.textContent = text;
+  el.status.className = `status${kind ? ` ${kind}` : ''}`;
 }
 
-const CONN_MESSAGES = {
+const FAILURES = {
+  'not-paired': 'Not connected yet.',
+  offline: "Couldn't reach Foldreel. Is it running?",
+  unauthorized: 'The pairing code is no longer valid. Reconnect below.',
+  'no-cookies': "No cookies found for this site. Make sure you're logged in.",
+};
+const failureText = (r) => FAILURES[r?.reason] || 'Something went wrong.';
+
+function timeAgo(iso) {
+  const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (!Number.isFinite(seconds)) return '';
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  for (const [unit, size] of [['day', 86400], ['hour', 3600], ['minute', 60]]) {
+    if (seconds >= size) return rtf.format(-Math.floor(seconds / size), unit);
+  }
+  return 'just now';
+}
+
+// ── Connection ──────────────────────────────────────────────────────────────
+const CONN = {
   'not-paired': ['Not connected', 'warn'],
-  offline: ["Foldreel isn't running", 'bad'],
-  unauthorized: ['Pairing revoked, reconnect below', 'bad'],
-  error: ['Something went wrong', 'bad'],
+  offline: ['Foldreel is closed', 'bad'],
+  unauthorized: ['Pairing revoked', 'bad'],
+  error: ['Error', 'bad'],
 };
 
 async function refreshConnection() {
   const result = await chrome.runtime.sendMessage({ type: 'status' });
   const connected = !!result?.ok;
-  pairSection.hidden = connected;
-  sendArea.hidden = !connected;
-  disconnectLink.hidden = !connected;
+  el.pair.hidden = connected;
+  el.sendArea.hidden = !connected;
+  el.disconnect.hidden = !connected;
   if (connected) {
-    connEl.className = 'ok';
-    connTextEl.textContent = 'Connected';
+    el.conn.className = 'pill ok';
+    el.connText.textContent = 'Connected';
+    refreshCookieStatus();
     return;
   }
-  const [text, kind] = CONN_MESSAGES[result?.reason] || CONN_MESSAGES.error;
-  connEl.className = kind;
-  connTextEl.textContent = text;
+  const [text, kind] = CONN[result?.reason] || CONN.error;
+  el.conn.className = `pill ${kind}`;
+  el.connText.textContent = text;
 }
 
-let currentUrl = '';
-let capturedMediaUrl = '';
+// ── Per-site settings ───────────────────────────────────────────────────────
+async function refreshHover() {
+  const { hoverEnabled, hoverHiddenHosts } = await Prefs.get();
+  const globallyOff = hoverEnabled === false;
+  el.hoverSite.disabled = globallyOff;
+  el.hoverSite.checked = !globallyOff && !hoverHiddenHosts.includes(currentHost);
+  el.hoverDesc.textContent = globallyOff
+    ? 'Turned off for every site in Settings'
+    : 'On images and videos';
+}
 
+async function refreshCookieStatus() {
+  if (!currentHost) {
+    el.cookieDesc.textContent = "Can't be read from this page";
+    el.sendCookies.disabled = true;
+    return;
+  }
+  const status = await chrome.runtime.sendMessage({ type: 'cookie-status', url: currentUrl });
+  if (status?.ok && status.exists) {
+    el.cookieDesc.textContent = `Saved ${timeAgo(status.updated_at)} · ${status.cookies} cookies`;
+    el.sendCookies.textContent = 'Replace';
+  } else if (status?.ok) {
+    el.cookieDesc.textContent = 'Not saved yet';
+    el.sendCookies.textContent = 'Add';
+  } else {
+    el.cookieDesc.textContent = 'Share this site’s login';
+    el.sendCookies.textContent = 'Add';
+  }
+}
+
+el.hoverSite.addEventListener('change', async () => {
+  await Prefs.setHostHidden(currentHost, !el.hoverSite.checked);
+  setStatus('');
+});
+
+el.sendCookies.addEventListener('click', async () => {
+  el.sendCookies.disabled = true;
+  setStatus('');
+  let result;
+  try {
+    result = await chrome.runtime.sendMessage({ type: 'export-cookies', url: currentUrl });
+  } catch {
+    result = { ok: false, reason: 'error' };
+  }
+  el.sendCookies.disabled = false;
+  if (!result?.ok) {
+    setStatus(failureText(result), 'bad');
+    if (result?.reason !== 'no-cookies') refreshConnection();
+    return;
+  }
+  setStatus('');
+  refreshCookieStatus();
+});
+
+// ── Sending the page ────────────────────────────────────────────────────────
 // Quality is a video-resolution filter; it does nothing once yt-dlp is
 // extracting audio only, so there's no point showing it for MP3.
-function updateQualityVisibility() {
-  qualityEl.hidden = formatEl.value === 'mp3';
-}
-formatEl.addEventListener('change', updateQualityVisibility);
+el.format.addEventListener('change', () => { el.quality.hidden = el.format.value === 'mp3'; });
 
-async function init() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  currentUrl = tab?.url || '';
-  const sendable = /^https?:\/\//.test(currentUrl);
-  urlEl.textContent = sendable ? currentUrl : "This page can't be sent to Foldreel.";
-  sendBtn.disabled = !sendable;
-  sendCookiesBtn.disabled = !sendable;
-  ytRow.hidden = !isYoutube(currentUrl);
-  updateQualityVisibility();
-
-  if (tab?.id != null) {
-    const captured = await chrome.runtime.sendMessage({ type: 'captured-media', tabId: tab.id });
-    if (captured?.url) {
-      capturedMediaUrl = captured.url;
-      mediaUrlEl.textContent = captured.url;
-      mediaDetect.hidden = false;
-    }
-  }
-
-  refreshConnection();
-}
-
-sendBtn.addEventListener('click', async () => {
-  sendBtn.disabled = true;
+el.send.addEventListener('click', async () => {
+  el.send.disabled = true;
   setStatus('Sending…');
-  const useDetected = !mediaDetect.hidden && mediaUseEl.value === 'direct' && capturedMediaUrl;
+  const useDetected = !el.mediaDetect.hidden && el.mediaUse.value === 'direct' && capturedMediaUrl;
   const options = {};
   if (useDetected) {
     // The CDN this points at almost always hotlink-checks the Referer, the
     // same way a real browser tab would send it - the current page is that
     // referer, since it's the one that actually requested this URL.
     options.referer = currentUrl;
-  } else if (!ytRow.hidden) {
-    if (!qualityEl.hidden && qualityEl.value !== 'best') options.quality = qualityEl.value;
-    if (formatEl.value !== 'mp4') options.format = formatEl.value;
+  } else if (!el.ytRow.hidden) {
+    if (!el.quality.hidden && el.quality.value !== 'best') options.quality = el.quality.value;
+    if (el.format.value !== 'mp4') options.format = el.format.value;
   }
   let result;
   try {
@@ -127,45 +171,17 @@ sendBtn.addEventListener('click', async () => {
     setTimeout(() => window.close(), 900);
     return;
   }
-  const messages = {
-    'not-paired': 'Not connected yet.',
-    offline: "Couldn't reach Foldreel. Is it running?",
-    unauthorized: 'Pairing code is no longer valid. Reconnect below.',
-  };
-  setStatus(messages[result?.reason] || 'Something went wrong.', 'bad');
-  sendBtn.disabled = false;
-  if (!result?.ok) refreshConnection();
+  setStatus(failureText(result), 'bad');
+  el.send.disabled = false;
+  refreshConnection();
 });
 
-sendCookiesBtn.addEventListener('click', async () => {
-  sendCookiesBtn.disabled = true;
-  setStatus('Sending cookies…');
-  let result;
-  try {
-    result = await chrome.runtime.sendMessage({ type: 'export-cookies', url: currentUrl });
-  } catch {
-    result = { ok: false, reason: 'error' };
-  }
-  sendCookiesBtn.disabled = false;
-  if (result?.ok) {
-    const where = result.domains?.length ? ` (${result.domains.join(', ')})` : '';
-    setStatus(`Sent ${result.count} cookie(s) to Foldreel${where}.`, 'ok');
-    return;
-  }
-  const messages = {
-    'not-paired': 'Not connected yet.',
-    offline: "Couldn't reach Foldreel. Is it running?",
-    unauthorized: 'Pairing code is no longer valid. Reconnect below.',
-    'no-cookies': "No cookies found for this site - make sure you're logged in.",
-  };
-  setStatus(messages[result?.reason] || 'Something went wrong.', 'bad');
-  if (!result?.ok && result?.reason !== 'no-cookies') refreshConnection();
-});
-
-pairConnectBtn.addEventListener('click', async () => {
-  const secret = pairCodeEl.value.trim();
+// ── Pairing ─────────────────────────────────────────────────────────────────
+el.pair.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const secret = el.pairCode.value.trim();
   if (!secret) return;
-  pairConnectBtn.disabled = true;
+  el.pairConnect.disabled = true;
   setStatus('Checking…');
   let ok = false;
   try {
@@ -176,22 +192,55 @@ pairConnectBtn.addEventListener('click', async () => {
   } catch {
     ok = false;
   }
-  pairConnectBtn.disabled = false;
+  el.pairConnect.disabled = false;
   if (!ok) {
     setStatus("Couldn't connect. Make sure Foldreel is running and the code is current.", 'bad');
     return;
   }
   await chrome.storage.local.set({ secret });
-  pairCodeEl.value = '';
+  el.pairCode.value = '';
   setStatus('Connected.', 'ok');
   refreshConnection();
 });
 
-disconnectLink.addEventListener('click', async (e) => {
+el.disconnect.addEventListener('click', async (e) => {
   e.preventDefault();
   await chrome.storage.local.remove('secret');
   setStatus('');
   refreshConnection();
 });
+
+el.openSettings.addEventListener('click', (e) => {
+  e.preventDefault();
+  chrome.runtime.openOptionsPage();
+});
+
+// ── Init ────────────────────────────────────────────────────────────────────
+async function init() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  currentUrl = tab?.url || '';
+  const sendable = /^https?:\/\//.test(currentUrl);
+  try { currentHost = sendable ? Prefs.normalizeHost(new URL(currentUrl).hostname) : ''; } catch { currentHost = ''; }
+
+  el.pageTitle.textContent = sendable ? (tab?.title || currentHost) : 'This page can’t be sent';
+  el.url.textContent = sendable ? currentUrl : 'Open a regular website first.';
+  el.send.disabled = !sendable;
+  el.siteHeading.textContent = currentHost ? `On ${currentHost}` : 'This site';
+  el.hoverSite.disabled = !sendable;
+  el.ytRow.hidden = !isYoutube(currentUrl);
+  el.quality.hidden = el.format.value === 'mp3';
+
+  if (tab?.id != null) {
+    const captured = await chrome.runtime.sendMessage({ type: 'captured-media', tabId: tab.id });
+    if (captured?.url) {
+      capturedMediaUrl = captured.url;
+      el.mediaUrl.textContent = captured.url;
+      el.mediaDetect.hidden = false;
+    }
+  }
+
+  if (sendable) refreshHover();
+  refreshConnection();
+}
 
 init();

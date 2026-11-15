@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  Loader2, Download, Check, RefreshCw, Trash2, ChevronDown, Puzzle, Copy, ShieldOff, Plus, Shield,
+  Loader2, Download, Check, RefreshCw, Trash2, ChevronDown, Puzzle, Copy, ShieldOff, Plus,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Section, Row } from '@/components/settingsUi';
+import SubNav from '@/components/SubNav';
 import { TokenMenu, NAME_TOKENS, NAME_TOKEN_TEXT } from '@/components/OutputSettings';
 import { useI18n } from '@/context/I18nProvider';
 import { useSettings } from '@/context/SettingsProvider';
@@ -24,11 +25,11 @@ import { snappy } from '@/lib/motion';
 // item -> "Public URL" once it's approved and public); falls back to a direct
 // zip download until then.
 const CHROME_STORE_URL = '';
-const PRIVACY_POLICY_URL = 'https://github.com/myousefg/Foldreel/blob/main/PRIVACY.md';
 
 export default function Advanced() {
   const { t } = useI18n();
   const { settings: s, update, reloadSettings } = useSettings();
+  const [tab, setTab] = useState('extension');
 
   const num = (k, v, fallback) => update({ [k]: v === '' ? fallback : Number(v) });
 
@@ -78,9 +79,15 @@ export default function Advanced() {
   }
 
   return (
-    <div className="space-y-8 pb-12">
-      <header />
-
+    <SubNav
+      label={t('nav.advanced')} value={tab} onChange={setTab}
+      tabs={[
+        ['extension', t('settings.extension')],
+        ['engine', t('settings.engine')],
+        ['presets', t('settings.presets')],
+      ]}
+    >
+      {tab === 'extension' && (
       <Section
         label={t('settings.extension')}
         aside={extConnected ? (
@@ -106,11 +113,6 @@ export default function Advanced() {
             </Row>
           );
         })()}
-        <Row title={t('settings.extensionPrivacy')} desc={t('settings.extensionPrivacyDesc')}>
-          <Button variant="outline" size="sm" onClick={() => openExternal(PRIVACY_POLICY_URL)}>
-            <Shield className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('settings.extensionPrivacy')}
-          </Button>
-        </Row>
         {!extSecret ? (
           <Row title={t('settings.extensionEnable')} desc={t('settings.extensionEnableDesc')}>
             <Button size="sm" onClick={enableExtension} disabled={extBusy || extSecret === null}>
@@ -157,7 +159,9 @@ export default function Advanced() {
           </>
         )}
       </Section>
+      )}
 
+      {tab === 'engine' && (
       <Section label={t('settings.engine')}>
         <Row title={t('settings.maxConcurrent')} desc={t('settings.maxConcurrentDesc')}>
           <Input type="number" min={0} max={16} value={s.max_concurrent ?? 2}
@@ -192,9 +196,10 @@ export default function Advanced() {
             placeholder="socks5://127.0.0.1:1080" className="w-64 font-mono text-xs" data-testid="proxy" />
         </Row>
       </Section>
+      )}
 
-      <PresetsSection />
-    </div>
+      {tab === 'presets' && <PresetsSection />}
+    </SubNav>
   );
 }
 

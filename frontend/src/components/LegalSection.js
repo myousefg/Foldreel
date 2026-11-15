@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Shield, ScrollText, Package } from 'lucide-react';
+import { Shield, ScrollText, Package, Puzzle } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
@@ -7,7 +7,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Section, Row } from '@/components/settingsUi';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/context/I18nProvider';
+import { openExternal } from '@/lib/electron';
 
+export const PRIVACY_POLICY_URL = 'https://github.com/myousefg/Foldreel/blob/main/PRIVACY.md';
 export const COPYRIGHT_YEAR = 2026;
 export const COPYRIGHT_HOLDER = 'myousefg';
 
@@ -46,6 +48,11 @@ export default function LegalSection() {
             <Shield className="w-3.5 h-3.5 me-1.5" /> {t('settings.read')}
           </Button>
         </Row>
+        <Row title={t('settings.extensionPrivacy')} desc={t('settings.extensionPrivacyDesc')}>
+          <Button variant="outline" size="sm" onClick={() => openExternal(PRIVACY_POLICY_URL)}>
+            <Puzzle className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('settings.read')}
+          </Button>
+        </Row>
         <Row title={t('settings.license')} desc={t('settings.licenseDesc')}>
           <Button variant="outline" size="sm" onClick={() => setDlg('license')}>
             <ScrollText className="w-3.5 h-3.5 me-1.5" /> {t('settings.read')}
@@ -55,6 +62,9 @@ export default function LegalSection() {
           <Button variant="outline" size="sm" onClick={() => setDlg('notices')}>
             <Package className="w-3.5 h-3.5 me-1.5" /> {t('settings.read')}
           </Button>
+        </Row>
+        <Row title={t('settings.copyright')}>
+          <span className="text-xs text-muted-foreground text-right">{copyright}</span>
         </Row>
       </Section>
 

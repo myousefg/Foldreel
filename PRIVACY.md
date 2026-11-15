@@ -1,6 +1,6 @@
 # Foldreel Privacy Policy
 
-_Last updated September 27, 2026 — applies to the Foldreel desktop app and the Foldreel browser extension._
+_Last updated November 14, 2026 — applies to the Foldreel desktop app and the Foldreel browser extension._
 
 Foldreel runs entirely on your own computer. There are no accounts, no analytics, and no server
 operated by us. Nothing you download, convert, rename, or send through the extension is seen by
@@ -51,6 +51,14 @@ any site you use it with.
 gallery-dl, yt-dlp, FFmpeg, and aria2c ship inside Foldreel as separate, unmodified programs
 under their own open-source licenses. Foldreel invokes them as subprocesses; they follow the
 same rule as the rest of the app — they talk to the sites you point them at, not to us.
+
+## Update checks
+
+Foldreel looks for newer versions through GitHub's public release pages, in two ways. The app
+checks for a newer version of itself shortly after it starts (the Microsoft Store version
+skips this, because the Store updates it). The tools above are checked only when you press
+**Check for updates** in Settings, and an update is only downloaded when you choose it.
+Like any web request, this shows your IP address to GitHub; nothing else about you is sent.
 
 ## Changes to this policy
 

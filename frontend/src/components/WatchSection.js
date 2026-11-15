@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { SiteAvatar } from '@/components/kit';
 import { useI18n } from '@/context/I18nProvider';
+import { parseSource } from '@/lib/jobMeta';
 import { useJobs } from '@/context/JobsProvider';
 import { jobsApi, thumbUrl } from '@/lib/api';
 import { snappy } from '@/lib/motion';
@@ -45,6 +47,7 @@ function WatchRow({ w, active, onUpdate, onRemove, onCheckNow }) {
   const [files, setFiles] = useState(null);
   const panelId = useId();
   const canExpand = !!w.last_job_id && w.last_found > 0;
+  const source = parseSource(w.url);
 
   const status = active
     ? t('watch.status.checking')
@@ -67,43 +70,52 @@ function WatchRow({ w, active, onUpdate, onRemove, onCheckNow }) {
   };
 
   return (
-    <div className="border border-border rounded-md overflow-hidden surface-elevated" data-testid={`watch-${w.id}`}>
-      <div className="flex items-center gap-3 px-3 py-2.5">
-        <span
-          className={`w-1.5 h-1.5 rounded-full shrink-0 ${w.last_status === 'error' ? 'bg-destructive' : w.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
-          aria-hidden="true"
-        />
-        <span className="font-mono text-xs truncate flex-1 min-w-0">{w.url}</span>
-        <span className="text-[11px] text-muted-foreground shrink-0 hidden sm:block">{status}</span>
+    <div className="" data-testid={`watch-${w.id}`}>
+      <div className="row-hover flex items-center gap-4 px-3 py-3">
+        <SiteAvatar url={w.url} size={36} />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate" title={w.url}>
+            {source.host}
+            {source.path && <span className="font-normal text-muted-foreground"> / {source.path}</span>}
+          </p>
+          <p className={`flex items-center gap-1.5 text-xs mt-0.5 truncate ${w.last_status === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>
+            <span
+              className={`w-1.5 h-1.5 rounded-full shrink-0 ${w.last_status === 'error' ? 'bg-destructive' : w.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`}
+              aria-hidden="true"
+            />
+            {w.enabled ? status : `${t('watch.paused')} · ${status}`}
+          </p>
+        </div>
         <Select value={String(w.interval_min)} onValueChange={v => onUpdate(w.id, { interval_min: Number(v) })}>
-          <SelectTrigger className="w-24 h-7 text-[11px]" data-testid={`watch-interval-${w.id}`}><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-28 h-8 text-xs" data-testid={`watch-interval-${w.id}`} aria-label={t('watch.interval.60')}><SelectValue /></SelectTrigger>
           <SelectContent>
             {INTERVALS.map(m => <SelectItem key={m} value={String(m)}>{t(`watch.interval.${m}`)}</SelectItem>)}
           </SelectContent>
         </Select>
         <Button
-          size="sm" variant="ghost" className="h-7 w-7 p-0"
-          title={w.enabled ? t('watch.pause') : t('watch.resume')}
+          size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground"
+          title={w.enabled ? t('watch.pause') : t('watch.resume')} aria-label={w.enabled ? t('watch.pause') : t('watch.resume')}
           onClick={() => onUpdate(w.id, { enabled: !w.enabled })}
         >
           {w.enabled ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
         </Button>
         <Button
-          size="sm" variant="ghost" className="h-7 w-7 p-0"
-          title={t('watch.checkNow')} disabled={active || !w.enabled}
+          size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground"
+          title={t('watch.checkNow')} aria-label={t('watch.checkNow')} disabled={active || !w.enabled}
           onClick={() => onCheckNow(w.id)}
         >
           <RotateCcw className="w-3.5 h-3.5" />
         </Button>
         <Button
-          size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-          title={t('watch.remove')} onClick={() => onRemove(w.id)}
+          size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive"
+          title={t('watch.remove')} aria-label={t('watch.remove')} onClick={() => onRemove(w.id)}
         >
           <Trash2 className="w-3.5 h-3.5" />
         </Button>
         <Button
-          size="sm" variant="ghost" className="h-7 w-7 p-0"
+          size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-foreground"
           disabled={!canExpand} aria-expanded={open} aria-controls={panelId}
+          aria-label={t('watch.viewFiles')}
           title={canExpand ? t('watch.viewFiles') : undefined}
           onClick={toggle}
         >
@@ -157,9 +169,7 @@ export default function WatchSection({ watches, onUpdate, onRemove, onCheckNow, 
   if (!watches.length) {
     if (!emptyMessage) return null;
     return (
-      <p className="text-sm text-muted-foreground border border-dashed border-border rounded-lg p-6 text-center">
-        {emptyMessage}
-      </p>
+      <p className="px-3 py-10 text-center text-sm text-muted-foreground">{emptyMessage}</p>
     );
   }
 
@@ -174,7 +184,7 @@ export default function WatchSection({ watches, onUpdate, onRemove, onCheckNow, 
   };
 
   return (
-    <div className="space-y-2">
+    <div className="list">
       {watches.map(w => (
         <WatchRow
           key={w.id} w={w} active={activeWatchIds.has(w.id)}

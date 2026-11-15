@@ -3,6 +3,47 @@
 All notable changes to Foldreel are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.0] - 2026-11-14
+
+### Changed
+- **New interface.** Downloads is a workspace: a composer for the link and its options, a table-style
+  queue with progress, and recently finished downloads underneath. The Library is grouped by day with
+  thumbnails and a slide-over inspector. Settings has a category list on the left. Every page has a header
+  with its own actions, a new palette taken from the app icon, native Windows fonts, and sentence-case labels.
+- Lists sit directly on the page instead of in boxes, with less explanatory text throughout.
+- Site logos (bundled with the app, nothing is fetched) in the queue, Library, Sites and the supported-sites row.
+- The Library inspector shows pictures and video frames at their real proportions, and closes when you click anywhere outside it.
+- Convert hides Quality for formats it does not apply to (PNG, GIF) and explains each level; Convert and Organize can clear every selected file.
+- Organize can show the selected files as a list or as medium or large pictures, so you can see which is which before renaming.
+- The app no longer loads fonts from Google's servers, which also removes the only request it made at
+  startup apart from the update check.
+
+### Added
+- **Import from Grabbr** (Settings): brings across settings, history, watches, logins, cookies and the download
+  record, and can reconnect an existing download folder in place. The old install is only ever read, and
+  Foldreel's own data is backed up first.
+- **Component updates** (Settings, About): check gallery-dl, yt-dlp, ffmpeg and aria2c for new versions and update
+  them in the background. Downloads are verified against the checksum GitHub publishes, and a build that
+  does not run is never installed. In the Microsoft Store build, components update with the app instead.
+- Video to picture conversion: save a single frame of a video as JPG, PNG or WEBP.
+- Browser extension: a floating-button switch (everywhere, or per site), a cookies button that says Replace when
+  Foldreel already has the site's cookies, a settings page, and an Alt+Shift+F shortcut.
+- Automated tests (backend and frontend) for the first time.
+
+### Fixed
+- Selecting files for bulk rename or conversion could arrive out of order (5-20, then 1-4), which numbered the
+  wrong files. Each batch is now sorted by name.
+- Settings changes and job start-up could race on the generated config file.
+- Two copies of one file in a single conversion batch could overwrite each other's output.
+- The tray's Resume Queue restored a stale concurrency value; a timed-out sign-in showed the wrong message;
+  opening the log of a job that never ran caused a server error.
+- Dark-mode error text and delete icons were nearly invisible (about 1.9:1 contrast); now about 5:1.
+- The version check could fail at random on some Windows machines (a certificate verification hiccup).
+- The Microsoft Store build no longer tries to update itself from GitHub.
+
+### Updated
+- gallery-dl 1.33.0-dev (2026.11.14) and yt-dlp 2026.10.26. FFmpeg 9.0.2 and aria2c 1.37.0 are already current.
+
 ## [1.0.0] - 2026-09-27
 
 ### Changed

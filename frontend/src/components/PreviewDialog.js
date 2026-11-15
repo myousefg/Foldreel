@@ -210,7 +210,7 @@ export default function PreviewDialog({ url, options, open, onOpenChange, onConf
 
               {data.errors?.length > 0 && (
                 <div className="mt-2">
-                  <p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground mb-1">
+                  <p className="section-label mb-1">
                     {t('preview.errors')}
                   </p>
                   <div className="text-xs font-mono text-destructive space-y-0.5">

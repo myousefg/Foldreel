@@ -33,4 +33,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   apiToken: API_TOKEN,
   isElectron: true,
+  // True for the Microsoft Store package, which the Store (not GitHub) updates.
+  isStore: !!process.windowsStore,
 });

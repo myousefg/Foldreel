@@ -76,7 +76,26 @@ async function exportCookies(url) {
     if (res.status === 401) return { ok: false, reason: 'unauthorized' };
     if (!res.ok) return { ok: false, reason: 'error' };
     const data = await res.json();
-    return { ok: true, domains: data.domains || [], count: data.cookies || 0 };
+    return { ok: true, domains: data.domains || [], count: data.cookies || 0, replaced: !!data.replaced };
+  } catch {
+    return { ok: false, reason: 'offline' };
+  }
+}
+
+// Whether Foldreel already holds cookies for this site, so the popup can say
+// "Replace" instead of "Add" and show how old the saved copy is.
+async function cookieStatus(url) {
+  const secret = await getSecret();
+  if (!secret) return { ok: false, reason: 'not-paired' };
+  let host;
+  try { host = new URL(url).hostname; } catch { return { ok: false, reason: 'error' }; }
+  try {
+    const res = await fetch(`${API_HOST}/api/extension/cookies?domain=${encodeURIComponent(host)}`, {
+      headers: { 'X-Foldreel-Extension-Token': secret },
+    });
+    if (res.status === 401) return { ok: false, reason: 'unauthorized' };
+    if (!res.ok) return { ok: false, reason: 'error' };
+    return { ok: true, ...(await res.json()) };
   } catch {
     return { ok: false, reason: 'offline' };
   }
@@ -162,6 +181,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     exportCookies(msg.url).then(sendResponse);
     return true;
   }
+  if (msg?.type === 'cookie-status') {
+    cookieStatus(msg.url).then(sendResponse);
+    return true;
+  }
   return false;
 });
 
@@ -201,4 +224,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const url = info.menuItemId === 'foldreel-send-link' ? info.linkUrl : (info.pageUrl || tab?.url);
   if (!url) return;
   await flashBadge(await sendUrls([url]));
+});
+
+// Keyboard shortcut (Alt+Shift+F by default, rebindable at
+// chrome://extensions/shortcuts): send the current page without opening the popup.
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== 'send-page') return;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.url || !/^https?:\/\//.test(tab.url)) return;
+  await flashBadge(await sendUrls([tab.url]));
 });

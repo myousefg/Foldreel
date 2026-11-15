@@ -1,21 +1,30 @@
 import { useEffect, useId, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'motion/react';
-import { Download, Eye, Loader2, AlertTriangle, ClipboardPaste, Bell } from 'lucide-react';
+import {
+  ArrowDownToLine, Eye, Loader2, AlertTriangle, ClipboardPaste, Bell, Link2, Folder, ChevronDown,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import JobCard from '@/components/JobCard';
 import PreviewDialog from '@/components/PreviewDialog';
-import OutputSettings from '@/components/OutputSettings';
+import { OutputFields } from '@/components/OutputSettings';
+import { PageSubtitle } from '@/components/PageHeader';
+import { Chip, SiteAvatar } from '@/components/kit';
 import { useI18n } from '@/context/I18nProvider';
 import { useJobs } from '@/context/JobsProvider';
 import { useSettings } from '@/context/SettingsProvider';
 import { isElectron } from '@/lib/electron';
-import { presetsApi, watchesApi } from '@/lib/api';
+import { presetsApi, thumbUrl, watchesApi } from '@/lib/api';
+import { fileCount, folderTail, parseSource, timeAgo } from '@/lib/jobMeta';
+import { useJobThumb } from '@/lib/useJobThumb';
 import { snappy, listItem } from '@/lib/motion';
+import { sentenceCase } from '@/lib/utils';
 
 const MODES = ['auto', 'page', 'scan', 'video'];
 // Foldreel passes URLs straight to gallery-dl, so a mode is just a prefix.
@@ -61,9 +70,49 @@ function applyMode(url, mode) {
   return p + url;
 }
 
+// A finished download as a card: its first picture, then where it came from.
+function RecentCard({ job, lang, onOpen, t }) {
+  const { ref, path: thumb } = useJobThumb(job);
+  const [failed, setFailed] = useState(false);
+  const { host, path } = parseSource(job.url);
+  const errored = job.status === 'error';
+  return (
+    <button
+      type="button" onClick={onOpen} data-testid={`recent-${job.id}`}
+      className="group text-start rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span ref={ref} className="relative block aspect-[4/3] rounded-xl overflow-hidden bg-muted ring-1 ring-inset ring-border group-hover:ring-ring transition-shadow">
+        {thumb && !failed ? (
+          <img
+            src={thumbUrl(thumb, 640)} alt="" loading="lazy" draggable={false} onError={() => setFailed(true)}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <span className="w-full h-full flex items-center justify-center"><SiteAvatar url={job.url} size={44} /></span>
+        )}
+        <span className="absolute start-2 bottom-2"><SiteAvatar url={job.url} size={22} className="shadow-sm" /></span>
+        {errored && (
+          <span className="absolute end-2 top-2 rounded-md bg-destructive px-1.5 py-0.5 text-[11px] font-medium text-destructive-foreground">
+            {sentenceCase(t('dashboard.status.error'), lang)}
+          </span>
+        )}
+      </span>
+      <span className="block mt-2 px-0.5">
+        <span className="block text-[13px] font-medium truncate" title={job.url}>
+          {host}{path && <span className="font-normal text-muted-foreground"> / {path}</span>}
+        </span>
+        <span className="block text-xs text-muted-foreground tabular-nums truncate">
+          {errored ? '' : `${fileCount(job.files_ok || 0, t, lang)} · `}{timeAgo(job.finished_at || job.created_at, lang)}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 export default function Dashboard() {
-  const { t } = useI18n();
-  const { active, queueView, createJobs } = useJobs();
+  const { t, lang } = useI18n();
+  const navigate = useNavigate();
+  const { active, queueView, finished, createJobs } = useJobs();
   const { settings: s } = useSettings();
   const [text, setText] = useState('');
   const [mode, setMode] = useState('auto');
@@ -168,133 +217,158 @@ export default function Dashboard() {
     }
   };
 
-  return (
-    <div className="space-y-8 pb-12">
-      <header />
+  const running = queueView.filter(j => j.status === 'running').length;
+  const waiting = queueView.filter(j => j.status === 'queued').length;
+  const recent = finished.slice(0, 8);
+  // Compact select that looks like a toolbar chip instead of a form field.
+  const chipSelect = 'h-7 w-auto gap-1.5 border-0 bg-transparent px-2.5 text-xs font-medium text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus:ring-2';
 
-      {/* URL input */}
-      <div className="space-y-3">
-        <label htmlFor={urlInputId} className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground block">
-          {t('dashboard.inputLabel')}
-        </label>
+  const canSingle = !busy && urls.length === 1 && !isYoutubeUrl(urls[0]);
+
+  return (
+    <div className="space-y-9">
+      <PageSubtitle>
+        {[running > 0 && `${running} ${t('dashboard.status.running').toLowerCase()}`, waiting > 0 && `${waiting} ${t('dashboard.status.queued').toLowerCase()}`].filter(Boolean).join(' · ')}
+      </PageSubtitle>
+
+      {/* Composer: the link, and everything that shapes the download, on one surface */}
+      <section aria-label={t('dashboard.inputLabel')}>
         <div
-          className="relative"
+          className={`rounded-xl border bg-card transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20 ${dragging ? 'border-ring ring-2 ring-ring/20' : 'border-border'}`}
           onDragOver={e => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
         >
-          <Textarea
-            id={urlInputId}
-            value={text}
-            onChange={e => setText(e.target.value)}
-            placeholder={t('dashboard.urlPlaceholder')}
-            rows={3}
-            className={`font-mono text-xs resize-none pe-24 transition-colors ${dragging ? 'ring-2 ring-ring border-ring' : ''}`}
-            data-testid="url-input"
-            onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') submit(urls); }}
-          />
-          <Button
-            variant="outline" size="sm" onClick={paste} data-testid="paste-btn"
-            className="absolute top-2 end-2 h-7"
-          >
-            <ClipboardPaste className="w-3.5 h-3.5 me-1" /> {t('dashboard.paste')}
-          </Button>
-        </div>
+          <div className="flex items-start gap-2 p-2.5">
+            <div className="relative flex-1 min-w-0">
+              <Link2 className="w-4 h-4 absolute start-3 top-[13px] text-muted-foreground pointer-events-none" aria-hidden="true" />
+              <label htmlFor={urlInputId} className="sr-only">{t('dashboard.inputLabel')}</label>
+              <Textarea
+                id={urlInputId}
+                value={text}
+                onChange={e => setText(e.target.value)}
+                placeholder={t('dashboard.urlPlaceholder')}
+                rows={Math.min(6, Math.max(1, urls.length || 1))}
+                className="font-mono text-[13px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 ps-10 pe-2 py-2.5 min-h-10"
+                data-testid="url-input"
+                onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') submit(urls); }}
+              />
+            </div>
+            {!text && (
+              <Button
+                variant="ghost" size="sm" onClick={paste} data-testid="paste-btn"
+                className="h-10 px-3 text-muted-foreground hover:text-foreground"
+              >
+                <ClipboardPaste className="w-4 h-4 me-1.5" aria-hidden="true" /> {t('dashboard.paste')}
+              </Button>
+            )}
+            <Button
+              className="h-10 px-5" onClick={() => submit(urls)} disabled={busy || !urls.length}
+              title="Ctrl + Enter" data-testid="download-btn"
+            >
+              {busy ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : <ArrowDownToLine className="w-4 h-4 me-2" aria-hidden="true" />}
+              {t('dashboard.add')}{urls.length > 1 ? ` (${urls.length})` : ''}
+            </Button>
+          </div>
 
-        {/* Primary actions */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button onClick={() => submit(urls)} disabled={busy || !urls.length} data-testid="download-btn">
-            {busy ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : <Download className="w-4 h-4 me-2" />}
-            {t('dashboard.add')}{urls.length > 1 ? ` (${urls.length})` : ''}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => {
-              if (!isValidUrl(urls[0])) { toast.error(t('dashboard.invalidUrl')); return; }
-              setPreview({ url: applyMode(urls[0], mode), options: jobOptions() });
-            }}
-            disabled={busy || urls.length !== 1 || isYoutubeUrl(urls[0])}
-            data-testid="preview-btn"
-          >
-            <Eye className="w-4 h-4 me-2" /> {t('dashboard.preview')}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={watchCurrent}
-            disabled={busy || watching || urls.length !== 1 || isYoutubeUrl(urls[0])}
-            title={t('watch.addHint')}
-            data-testid="watch-btn"
-          >
-            {watching ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : <Bell className="w-4 h-4 me-2" />}
-            {t('watch.add')}
-          </Button>
-          {allYoutube && (
-            <>
-              {format !== 'mp3' && (
-                <Select value={quality} onValueChange={setQuality}>
-                  <SelectTrigger className="w-28" data-testid="yt-quality"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['best', '1080', '720', '480', '360'].map(q => (
-                      <SelectItem key={q} value={q}>{t(`dashboard.quality.${q}`)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              <Select value={format} onValueChange={setFormat}>
-                <SelectTrigger className="w-24" data-testid="yt-format"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="mp4">{t('dashboard.format.mp4')}</SelectItem>
-                  <SelectItem value="mp3">{t('dashboard.format.mp3')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </>
-          )}
-          {/* Presets are gallery-dl config overrides - they have no effect on
-              the separate yt-dlp path a YouTube URL takes, so offering one
-              here would apply silently to nothing. */}
-          {presets.length > 0 && !allYoutube && (
-            <Select value={preset} onValueChange={setPreset}>
-              <SelectTrigger className="w-40 ms-auto" data-testid="preset-select"><SelectValue /></SelectTrigger>
+          <div className="flex items-center gap-0.5 flex-wrap px-2.5 pb-2.5">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Chip icon={Folder} aria-label={t('settings.outputDir')} title={s?.output_dir || ''}>
+                  <span className="max-w-[200px] truncate">{folderTail(s?.output_dir) || t('settings.outputDir')}</span>
+                  <ChevronDown className="w-3 h-3 opacity-60" aria-hidden="true" />
+                </Chip>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-auto p-4">
+                <OutputFields />
+              </PopoverContent>
+            </Popover>
+
+            <Select value={mode} onValueChange={setMode}>
+              <SelectTrigger className={chipSelect} data-testid="mode-select" aria-label={t('dashboard.inputLabel')}><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">{t('dashboard.noPreset')}</SelectItem>
-                {presets.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                {MODES.map(m => <SelectItem key={m} value={m}>{t(`dashboard.mode.${m}`)}</SelectItem>)}
               </SelectContent>
             </Select>
-          )}
-          <Select value={mode} onValueChange={setMode}>
-            <SelectTrigger className={`w-[190px] ${presets.length > 0 && !allYoutube ? '' : 'ms-auto'}`} data-testid="mode-select"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {MODES.map(m => <SelectItem key={m} value={m}>{t(`dashboard.mode.${m}`)}</SelectItem>)}
-            </SelectContent>
-          </Select>
+
+            {presets.length > 0 && !allYoutube && (
+              <Select value={preset} onValueChange={setPreset}>
+                <SelectTrigger className={chipSelect} data-testid="preset-select" aria-label={t('dashboard.noPreset')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t('dashboard.noPreset')}</SelectItem>
+                  {presets.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+            {allYoutube && (
+              <>
+                {format !== 'mp3' && (
+                  <Select value={quality} onValueChange={setQuality}>
+                    <SelectTrigger className={chipSelect} data-testid="yt-quality" aria-label={t('dashboard.quality.best')}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {['best', '1080', '720', '480', '360'].map(q => (
+                        <SelectItem key={q} value={q}>{t(`dashboard.quality.${q}`)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <Select value={format} onValueChange={setFormat}>
+                  <SelectTrigger className={chipSelect} data-testid="yt-format" aria-label={t('dashboard.format.mp4')}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mp4">{t('dashboard.format.mp4')}</SelectItem>
+                    <SelectItem value="mp3">{t('dashboard.format.mp3')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+
+            <div className="ms-auto flex items-center gap-0.5">
+              <Button
+                variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  if (!isValidUrl(urls[0])) { toast.error(t('dashboard.invalidUrl')); return; }
+                  setPreview({ url: applyMode(urls[0], mode), options: jobOptions() });
+                }}
+                disabled={!canSingle}
+                title={t('dashboard.preview')} aria-label={t('dashboard.preview')}
+                data-testid="preview-btn"
+              >
+                <Eye className="w-4 h-4" aria-hidden="true" />
+              </Button>
+              <Button
+                variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={watchCurrent}
+                disabled={!canSingle || watching}
+                title={t('watch.add')} aria-label={t('watch.add')}
+                data-testid="watch-btn"
+              >
+                {watching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" aria-hidden="true" />}
+              </Button>
+            </div>
+          </div>
         </div>
 
         {hasInvalidUrl && (
-          <p role="alert" className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <p role="alert" className="mt-2.5 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
             <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
             {t('dashboard.invalidUrl')}
           </p>
         )}
-        {mode !== 'auto' && !modeMismatch && (
-          <p className="text-xs text-muted-foreground">{t(`dashboard.modeHint.${mode}`)}</p>
-        )}
         {modeMismatch && (
-          <p role="alert" className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <p role="alert" className="mt-2.5 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
             <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
             {t('dashboard.modeMismatch')}
           </p>
         )}
-      </div>
+      </section>
 
-      {/* Active / queued */}
-      <section className="space-y-3">
-        <h2 className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{t('dashboard.queue')}</h2>
-        {queueView.length === 0 ? (
-          <p className="text-sm text-muted-foreground border border-dashed border-border rounded-lg p-6 text-center">
-            {t('dashboard.noActive')}
-          </p>
-        ) : (
-          <div className="space-y-3">
+      {queueView.length > 0 && (
+        <section aria-label={t('dashboard.queue')} className="space-y-2">
+          <div className="flex items-baseline gap-2 px-3">
+            <h2 className="text-[13px] font-semibold">{t('dashboard.queue')}</h2>
+            <span className="text-xs text-muted-foreground tabular-nums">{queueView.length}</span>
+          </div>
+          <div className="list">
             <AnimatePresence initial={false}>
               {queueView.map(job => (
                 <motion.div
@@ -310,10 +384,22 @@ export default function Dashboard() {
               ))}
             </AnimatePresence>
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
-      <OutputSettings />
+      {recent.length > 0 && (
+        <section aria-label={t('dashboard.recent')} className="space-y-3">
+          <div className="flex items-baseline justify-between px-3">
+            <h2 className="text-[13px] font-semibold">{t('dashboard.recent')}</h2>
+            <button type="button" onClick={() => navigate('/history')} className="text-xs text-muted-foreground hover:text-foreground">
+              {t('dashboard.viewLibrary')}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-5 px-3">
+            {recent.map(job => <RecentCard key={job.id} job={job} lang={lang} onOpen={() => navigate(`/history?job=${job.id}`)} t={t} />)}
+          </div>
+        </section>
+      )}
 
       <PreviewDialog
         url={preview?.url}

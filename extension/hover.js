@@ -18,6 +18,33 @@
   let currentEl = null;
   let hideTimer = null;
 
+  // Preferences (see prefs.js; content scripts can't load it, so the two keys
+  // are read directly). Changes made in the popup or options page apply to
+  // already-open tabs immediately via storage.onChanged.
+  const pageHost = location.hostname.toLowerCase().replace(/^www\./, '');
+  let enabled = true;
+  let hiddenHosts = [];
+  const isActive = () => enabled && !hiddenHosts.includes(pageHost);
+
+  function hideNow() {
+    clearTimeout(hideTimer);
+    button?.classList.remove('visible');
+    currentEl = null;
+  }
+
+  chrome.storage.local.get({ hoverEnabled: true, hoverHiddenHosts: [] }).then((v) => {
+    enabled = v.hoverEnabled !== false;
+    hiddenHosts = v.hoverHiddenHosts || [];
+    if (!isActive()) hideNow();
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.hoverEnabled) enabled = changes.hoverEnabled.newValue !== false;
+    if (changes.hoverHiddenHosts) hiddenHosts = changes.hoverHiddenHosts.newValue || [];
+    if (!isActive()) hideNow();
+  });
+
   function ensureHost() {
     if (host) return;
     host = document.createElement('div');
@@ -32,10 +59,10 @@
       .btn {
         position: fixed;
         display: flex; align-items: center; gap: 5px;
-        background: #ff5c5c; color: #1a1210;
-        font: 600 11px/1 -apple-system, "Segoe UI", sans-serif;
+        background: #ff7152; color: #1c0f0b;
+        font: 600 12px/1 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
         border: none; border-radius: 7px;
-        padding: 5px 9px;
+        padding: 6px 10px;
         box-shadow: 0 2px 10px rgba(0,0,0,.35);
         cursor: pointer;
         pointer-events: auto;
@@ -161,7 +188,7 @@
   // fires far more often than that needs to feel instant.
   let moveThrottle = null;
   document.addEventListener('mousemove', (e) => {
-    if (moveThrottle) return;
+    if (!isActive() || moveThrottle) return;
     moveThrottle = setTimeout(() => { moveThrottle = null; }, 80);
     const candidate = findCandidate(e.clientX, e.clientY);
     if (!candidate) {

@@ -5,8 +5,10 @@ import axios from 'axios';
 // (the backend then runs with the check disabled).
 const API_TOKEN = (typeof window !== 'undefined' && window.electronAPI?.apiToken) || '';
 
-export const API_HOST = 'http://127.0.0.1:8767';
-export const WS_URL   = `ws://127.0.0.1:8767/api/ws${API_TOKEN ? `?token=${encodeURIComponent(API_TOKEN)}` : ''}`;
+// REACT_APP_API_PORT lets a dev build talk to a scratch backend instead of the real one.
+const API_PORT = process.env.REACT_APP_API_PORT || '8767';
+export const API_HOST = `http://127.0.0.1:${API_PORT}`;
+export const WS_URL   = `ws://127.0.0.1:${API_PORT}/api/ws${API_TOKEN ? `?token=${encodeURIComponent(API_TOKEN)}` : ''}`;
 
 const api = axios.create({
   baseURL: `${API_HOST}/api`,
@@ -17,14 +19,14 @@ const api = axios.create({
 });
 
 const tokenParam = API_TOKEN ? `&token=${encodeURIComponent(API_TOKEN)}` : '';
-export const thumbUrl = (path) => `${API_HOST}/api/thumb?path=${encodeURIComponent(path)}${tokenParam}`;
-export const organizeThumbUrl = (path) => `${API_HOST}/api/organize/thumb?path=${encodeURIComponent(path)}${tokenParam}`;
+export const thumbUrl = (path, size) => `${API_HOST}/api/thumb?path=${encodeURIComponent(path)}${size ? `&size=${size}` : ''}${tokenParam}`;
+export const organizeThumbUrl = (path, size) => `${API_HOST}/api/organize/thumb?path=${encodeURIComponent(path)}${size ? `&size=${size}` : ''}${tokenParam}`;
 
 export const jobsApi = {
   list:   (status)        => api.get('/jobs', { params: status ? { status } : {} }).then(r => r.data),
   get:    (id)            => api.get(`/jobs/${id}`).then(r => r.data),
   log:    (id)            => api.get(`/jobs/${id}/log`).then(r => r.data),
-  files:  (id)            => api.get(`/jobs/${id}/files`).then(r => r.data),
+  files:  (id, limit)     => api.get(`/jobs/${id}/files`, { params: limit ? { limit } : {} }).then(r => r.data),
   create: (urls, options) => api.post('/jobs', { urls, options }).then(r => r.data),
   cancel: (id)            => api.post(`/jobs/${id}/cancel`).then(r => r.data),
   pause:  (id)            => api.post(`/jobs/${id}/pause`).then(r => r.data),
@@ -89,13 +91,19 @@ export const watchesApi = {
 };
 
 export const toolsApi = {
-  list:    ()     => api.get('/tools').then(r => r.data),
+  list:    (check) => api.get('/tools', { params: check ? { check: 1 } : {} }).then(r => r.data),
   install: (name) => api.post(`/tools/${name}/install`).then(r => r.data),
 };
 
 export const extensionApi = {
   enable:  () => api.post('/extension-pairing').then(r => r.data),
   disable: () => api.delete('/extension-pairing').then(r => r.data),
+};
+
+export const importApi = {
+  detect:  ()     => api.get('/import/detect').then(r => r.data),
+  inspect: (path) => api.post('/import/inspect', { path }).then(r => r.data),
+  run:     (body) => api.post('/import/run', body).then(r => r.data),
 };
 
 export const sitesApi = {

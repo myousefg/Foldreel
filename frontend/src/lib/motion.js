@@ -29,3 +29,11 @@ export const listItem = {
   animate: { opacity: 1, y: 0, scale: 1 },
   exit: { opacity: 0, scale: 0.98 },
 };
+
+// Route changes: a quick opacity ease, no spring and no slide. Sliding every
+// page up on every navigation is the most "template" motion there is.
+export const routeFade = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  transition: { duration: 0.14, ease: 'easeOut' },
+};

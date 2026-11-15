@@ -9,7 +9,7 @@ your favorite sites, convert or compress anything you drop in, batch-rename file
 into clean albums, and watch pages for new posts automatically. No command line, no config
 files, no juggling four different tools.
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)](https://github.com/myousefg/Foldreel/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)](https://github.com/myousefg/Foldreel/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/myousefg/Foldreel/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/myousefg/Foldreel/total?style=flat-square&label=downloads)](https://github.com/myousefg/Foldreel/releases)

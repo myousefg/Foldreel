@@ -14,16 +14,11 @@ import { isElectron, openExternal } from '@/lib/electron';
 import { SITE_GROUPS } from '@/lib/sites';
 import { snappy } from '@/lib/motion';
 
-function TierBadge({ auth, required }) {
-  const label = {
-    cookies: 'COOKIES', userpass: 'USER / PASS', oauth: 'OAUTH',
-    'oauth-instance': 'OAUTH', token: 'TOKEN',
-  }[auth] || auth.toUpperCase();
-  return (
-    <span className="text-[9px] font-medium tracking-[0.15em] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-      {label}{required ? ' · REQUIRED' : ''}
-    </span>
-  );
+import { SiteAvatar } from '@/components/kit';
+// The group heading already says how a site signs in; only "required" is worth repeating.
+function TierBadge({ required }) {
+  if (!required) return null;
+  return <span className="text-[11px] font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary">Required</span>;
 }
 
 function StateDot({ configured }) {
@@ -163,19 +158,26 @@ function SiteRow({ site, row, ck, open, onToggle, onCollapse, onSaved, onCookies
   };
 
   return (
-    <div className="border border-border rounded-lg" data-testid={`site-${site.id}`}>
+    <div className="" data-testid={`site-${site.id}`}>
       <button
         onClick={onToggle}
         aria-expanded={open}
         aria-controls={panelId}
-        className="w-full flex items-center gap-3 p-3.5 text-left hover:bg-accent/50 transition-colors rounded-lg"
+        className="row-hover w-full flex items-center gap-3.5 px-3 py-2.5 text-left focus-visible:outline-none focus-visible:bg-accent"
       >
-        <StateDot configured={configured} />
+        <SiteAvatar host={site.id === 'mastodon' ? 'mastodon.social' : site.domain} size={32} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-medium">{site.name}</span>
+          <span className="block text-[11px] text-muted-foreground truncate">{site.domain}</span>
+        </span>
         <span className="sr-only">{configured ? t('sites.configured') : t('sites.notConfigured')}</span>
-        <span className="text-sm font-medium">{site.name}</span>
-        <span className="font-mono text-[11px] text-muted-foreground">{site.domain}</span>
-        <div className="ms-auto flex items-center gap-2">
-          <TierBadge auth={site.auth} required={site.required} />
+        <div className="flex items-center gap-3 shrink-0">
+          {configured && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400" aria-hidden="true">
+              <StateDot configured /> {t('sites.configured')}
+            </span>
+          )}
+          <TierBadge required={site.required} />
           <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
         </div>
       </button>
@@ -190,7 +192,7 @@ function SiteRow({ site, row, ck, open, onToggle, onCollapse, onSaved, onCookies
             transition={snappy}
             style={{ overflow: 'hidden' }}
           >
-            <div className="px-3.5 pb-4 pt-1 space-y-3 border-t border-border">
+            <div className="px-3 pb-4 pt-1 ps-[58px] space-y-3">
           {site.note && <p className="text-xs text-muted-foreground leading-relaxed pt-2">{site.note}</p>}
 
           {/* Cookie sites */}
@@ -373,14 +375,12 @@ export default function Sites() {
 
   return (
     <div className="space-y-8 pb-12">
-      <header />
-
       <CookieDefaults browsers={browsers} ck={ck} onReload={loadCookies} />
 
       {SITE_GROUPS.map(group => (
-        <section key={group.key} className="space-y-3">
-          <h2 className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{group.title}</h2>
-          <div className="space-y-2">
+        <section key={group.key} className="space-y-2">
+          <h2 className="text-[13px] font-semibold px-3">{group.title}</h2>
+          <div className="list">
             {group.sites.map(site => (
               <SiteRow
                 key={site.id} site={site} row={rows[site.id]} ck={ck}

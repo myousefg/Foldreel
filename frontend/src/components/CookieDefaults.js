@@ -47,8 +47,8 @@ export default function CookieDefaults({ browsers = [], ck, onReload }) {
       )}
 
       <Row title={t('settings.cookiesFolder')}>
-        <code className="font-mono text-[11px] text-muted-foreground break-all max-w-[240px] block">
-          {ck?.dir || '…'}
+        <code className="font-mono text-[11px] text-muted-foreground truncate max-w-[240px] block" title={ck?.dir || ''}>
+          {ck?.dir ? ck.dir.split(/[\\/]/).slice(-2).join('/') : '…'}
         </code>
         {isElectron && ck?.dir && (
           <Button variant="outline" size="icon" onClick={() => window.electronAPI.openPath(ck.dir)} title={t('settings.openFolder')} aria-label={t('settings.openFolder')}>

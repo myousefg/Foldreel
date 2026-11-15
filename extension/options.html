@@ -1,34 +1,86 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Foldreel extension</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foldreel settings</title>
+<link rel="stylesheet" href="ui.css">
 <style>
-  body { font-family: -apple-system, "Segoe UI", sans-serif; background:#0a0a0a; color:#fafafa; margin:0; padding:24px; width: 360px; }
-  h1 { font-size: 15px; margin: 0 0 4px; }
-  p.sub { font-size: 12px; color: #a1a1aa; margin: 0 0 16px; line-height: 1.5; }
-  label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #a1a1aa; display:block; margin-bottom: 6px; }
-  input { width: 100%; box-sizing: border-box; background: #171717; border: 1px solid #262626; border-radius: 6px; color: #fafafa; padding: 8px 10px; font-family: monospace; font-size: 12px; }
-  input:focus { outline: none; border-color: #525252; }
-  .row { margin-top: 10px; }
-  button { background: #fafafa; color: #0a0a0a; border: none; border-radius: 6px; padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
-  button.secondary { background: transparent; color: #fafafa; border: 1px solid #262626; margin-left: 8px; }
-  button:disabled { opacity: 0.5; cursor: default; }
-  #status { margin-top: 14px; font-size: 12px; min-height: 16px; }
-  .ok { color: #34d399; }
-  .bad { color: #f87171; }
+  body { padding: 32px 20px 48px; }
+  .page { max-width: 560px; margin: 0 auto; }
+  .head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+  .head img { width: 36px; height: 36px; border-radius: 9px; }
+  h1 { font-size: 20px; font-weight: 650; letter-spacing: -.015em; }
+  .lede { color: var(--muted); margin: 2px 0 8px; }
+  h2.group-title { margin-top: 26px; }
+  .block { padding: 12px; }
+  .block p { color: var(--muted); margin-bottom: 10px; }
+  .inline { display: flex; gap: 8px; }
+  .inline .btn { flex: none; }
+  .conn-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  ul.hosts { list-style: none; margin: 0; padding: 0; }
+  ul.hosts li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--border); }
+  ul.hosts .empty { color: var(--muted); }
+  kbd { font: 12px var(--mono); background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; }
+  .about { color: var(--muted); margin-top: 28px; font-size: 12px; }
 </style>
 </head>
 <body>
-  <h1>Connect to Foldreel</h1>
-  <p class="sub">Open Foldreel &rarr; Settings &rarr; Browser extension &rarr; Enable, then paste the pairing code below.</p>
-  <label for="code">Pairing code</label>
-  <input id="code" type="text" placeholder="paste code here" autocomplete="off" spellcheck="false" />
-  <div class="row">
-    <button id="connect">Connect</button>
-    <button id="disconnect" class="secondary">Disconnect</button>
+<div class="page">
+  <div class="head">
+    <img src="icons/icon48.png" alt="">
+    <h1>Foldreel extension</h1>
   </div>
-  <div id="status"></div>
-  <script src="options.js"></script>
+  <p class="lede">Sends links, pages and login cookies to Foldreel running on this computer. Nothing leaves your machine.</p>
+
+  <h2 class="group-title" id="conn-heading">Connection</h2>
+  <div class="list block" role="group" aria-labelledby="conn-heading">
+    <div class="conn-row">
+      <span id="conn" class="pill"><span class="dot" aria-hidden="true"></span><span id="conn-text">Checking…</span></span>
+      <button id="disconnect" class="btn small" type="button">Disconnect</button>
+    </div>
+    <p>In Foldreel, open Settings, then Browser extension, turn it on, and paste the pairing code here.</p>
+    <form id="pair-form" class="inline">
+      <input id="code" type="text" class="mono" placeholder="Pairing code" aria-label="Pairing code" autocomplete="off" spellcheck="false">
+      <button class="btn primary" type="submit">Connect</button>
+    </form>
+  </div>
+
+  <h2 class="group-title" id="hover-heading">Floating download button</h2>
+  <div class="list" role="group" aria-labelledby="hover-heading">
+    <div class="item">
+      <div class="item-text">
+        <span class="item-title" id="hover-title">Show on images and videos</span>
+        <span class="item-desc" id="hover-desc">A small button appears when you hover a photo or video. You can also hide it per site from the toolbar popup.</span>
+      </div>
+      <label class="switch">
+        <input id="hover-enabled" type="checkbox" role="switch" aria-labelledby="hover-title" aria-describedby="hover-desc">
+        <span class="track" aria-hidden="true"></span>
+      </label>
+    </div>
+    <div class="item" style="display:block">
+      <span class="item-title" id="hidden-title">Hidden on these sites</span>
+    </div>
+    <ul class="hosts" id="hosts" aria-labelledby="hidden-title"></ul>
+    <form id="host-form" class="inline block" style="border-top:1px solid var(--border)">
+      <input id="host-input" type="text" placeholder="example.com" aria-label="Site to hide the button on" autocomplete="off" spellcheck="false">
+      <button class="btn small" type="submit" style="min-height:34px">Hide</button>
+    </form>
+  </div>
+
+  <h2 class="group-title" id="cookie-heading">Login cookies</h2>
+  <div class="list block" role="group" aria-labelledby="cookie-heading">
+    <p style="margin:0">Cookies are only sent when you press Add or Replace in the toolbar popup, never automatically. Sending again for the same site replaces the saved copy, so refresh them after you log in again.</p>
+  </div>
+
+  <h2 class="group-title" id="key-heading">Shortcut</h2>
+  <div class="list block" role="group" aria-labelledby="key-heading">
+    <p style="margin:0"><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> sends the current page. Change it in your browser's extension shortcuts page.</p>
+  </div>
+
+  <p class="about"><span id="version"></span> · <a href="https://github.com/myousefg/Foldreel/blob/main/PRIVACY.md" target="_blank" rel="noopener">Privacy policy</a></p>
+</div>
+<script src="prefs.js"></script>
+<script src="options.js"></script>
 </body>
 </html>

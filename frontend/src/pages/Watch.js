@@ -7,6 +7,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import WatchSection from '@/components/WatchSection';
+import { PageSubtitle } from '@/components/PageHeader';
 import { useI18n } from '@/context/I18nProvider';
 import { useWatches } from '@/lib/watches';
 
@@ -45,20 +46,21 @@ export default function Watch() {
 
   return (
     <div className="space-y-6 pb-12">
-      <header />
+      <PageSubtitle>{t('watch.summary', { count: watches.length })}</PageSubtitle>
 
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap rounded-xl border border-border bg-card p-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
+        <label htmlFor={urlInputId} className="sr-only">{t('watch.add')}</label>
         <Input
           id={urlInputId}
           value={url}
           onChange={e => setUrl(e.target.value)}
           placeholder={t('dashboard.urlPlaceholder')}
-          className="flex-1 min-w-[220px] font-mono text-xs"
+          className="flex-1 min-w-[220px] font-mono text-[13px] border-0 bg-transparent shadow-none focus-visible:ring-0"
           data-testid="watch-url-input"
           onKeyDown={e => { if (e.key === 'Enter') submit(); }}
         />
         <Select value={interval} onValueChange={setInterval_}>
-          <SelectTrigger className="w-28" data-testid="watch-interval-select"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-32 h-9 border-0 bg-transparent shadow-none text-muted-foreground" data-testid="watch-interval-select" aria-label={t('watch.interval.60')}><SelectValue /></SelectTrigger>
           <SelectContent>
             {INTERVALS.map(m => <SelectItem key={m} value={String(m)}>{t(`watch.interval.${m}`)}</SelectItem>)}
           </SelectContent>

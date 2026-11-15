@@ -1,9 +1,9 @@
 {
   "nav": {
-    "dashboard": "DASHBOARD",
+    "dashboard": "Downloads",
     "convert": "CONVERT",
     "organize": "ORGANIZE",
-    "history": "HISTORY",
+    "history": "Library",
     "watch": "WATCH",
     "sites": "SITES",
     "settings": "SETTINGS",
@@ -49,7 +49,7 @@
     },
     "modeMismatch": "This site has a dedicated extractor. Use Auto to get the posts. Whole page / Scan only grab page chrome (logos, icons) because posts load via JavaScript.",
     "invalidUrl": "Please paste a working link (starting with http:// or https://).",
-    "queue": "Queue & Active",
+    "queue": "Active",
     "noActive": "Nothing downloading. Paste a URL above to start.",
     "recent": "Recently finished",
     "viewAll": "View all in History",
@@ -79,7 +79,13 @@
       "done": "DONE",
       "error": "ERROR",
       "canceled": "CANCELED"
-    }
+    },
+    "noActiveShort": "Nothing in the queue",
+    "noActiveTitle": "Nothing downloading",
+    "emptyTip": "Paste a link above to start. Drop a .txt file of links onto the box to add many at once.",
+    "worksWith": "Works with",
+    "worksWithMore": "and many more",
+    "viewLibrary": "View library"
   },
   "preview": {
     "title": "Preview",
@@ -123,19 +129,28 @@
     "deleteConfirmDesc": "Permanently erases this job's download folder from disk, then removes the history entry. This cannot be undone.",
     "deleted": "{{count}} file(s) deleted",
     "deleteFailed": "Could not delete files",
-    "sharedFolderNote": "This job's files couldn't be narrowed down from the main download folder, so deleting them here would affect other downloads too. Use Remove to clear this entry, or delete files from the folder yourself."
+    "sharedFolderNote": "This job's files couldn't be narrowed down from the main download folder, so deleting them here would affect other downloads too. Use Remove to clear this entry, or delete files from the folder yourself.",
+    "summary": "{{count}} finished",
+    "folder": "Saved to",
+    "copyUrl": "Copy link",
+    "copied": "Link copied",
+    "needsAttention": "Needs attention"
   },
   "convert": {
-    "dropTitle": "Drop photos or videos to convert or compress",
-    "dropHint": "Change the format, shrink the file size, or both",
+    "dropTitle": "Drop photos or videos to convert",
     "browse": "Browse files",
     "photosTo": "Photos →",
     "videosTo": "Videos →",
     "quality": {
-      "high": "Quality: High",
-      "medium": "Quality: Normal",
-      "low": "Quality: Low"
+      "high": "High",
+      "medium": "Normal",
+      "low": "Low"
     },
+    "group": {
+      "video": "Video",
+      "frame": "Picture (one frame)"
+    },
+    "frameAt": "Frame at (s)",
     "gif": {
       "fps": "FPS",
       "width": "Width",
@@ -155,7 +170,17 @@
       "done": "Done",
       "error": "Error"
     },
-    "empty": "Nothing converted yet."
+    "empty": "Nothing converted yet.",
+    "qualityName": "Quality",
+    "qualityHint": {
+      "high": "Best look, larger file",
+      "medium": "Balanced",
+      "low": "Smallest file, some loss"
+    },
+    "lossless": "Lossless",
+    "target": "Format",
+    "clearAll": "Clear all",
+    "converted": "Converted"
   },
   "organize": {
     "recentActivity": "Recent activity",
@@ -178,7 +203,15 @@
     "renameStart": "Start at",
     "renameApply": "Rename ({{count}})",
     "renameApplied": "Renamed {{count}} item(s)",
-    "renameApplyFailed": "Could not rename"
+    "renameApplyFailed": "Could not rename",
+    "dropHint": "Drop files or folders to rename",
+    "clearAll": "Clear all",
+    "view": {
+      "list": "List",
+      "medium": "Medium",
+      "large": "Large"
+    },
+    "viewLabel": "Preview size"
   },
   "watch": {
     "add": "Watch",
@@ -208,7 +241,10 @@
       "360": "6 hours",
       "720": "12 hours",
       "1440": "24 hours"
-    }
+    },
+    "summary": "{{count}} watching",
+    "emptyHint": "A watch re-checks a profile or search on a schedule and downloads only what is new.",
+    "paused": "Paused"
   },
   "settings": {
     "title": "Settings",
@@ -289,7 +325,7 @@
     "extensionDownloadStoreDesc": "Install it straight from the Chrome Web Store - it'll update itself from there too.",
     "extensionOpenFolder": "Open extension folder",
     "extensionOpenFolderDesc": "The extension ships with Foldreel itself - open its folder and load it unpacked (chrome://extensions, Developer mode, Load unpacked).",
-    "extensionPrivacy": "Privacy policy",
+    "extensionPrivacy": "Extension privacy policy",
     "extensionPrivacyDesc": "What the extension does and does not do with your data.",
     "extensionEnable": "Enable",
     "extensionEnableDesc": "Send the current tab straight to Foldreel, no copy-paste. Generates a pairing code for the browser extension on this computer. It can queue downloads and, only when you click \"Send cookies for this site\", read that site's cookies - it never reads settings or saved site credentials.",
@@ -370,7 +406,7 @@
     "aboutTagline": "Download, convert, rename, and watch your media - all in one app.",
     "aboutRepo": "Open Foldreel on GitHub",
     "components": "Components",
-    "componentsDesc": "Bundled tools and their versions.",
+    "componentsDesc": "The tools Foldreel downloads with. Checking and updating run in the background.",
     "installed": "installed",
     "notInstalled": "not installed",
     "copyright": "Copyright",
@@ -380,13 +416,14 @@
     "privacyDesc": "What Foldreel does and does not do with your data.",
     "privacyBody1": "Foldreel runs entirely on your machine. It has no accounts, no analytics, no telemetry, and no server of its own. Your URLs, downloads, cookies, and settings never leave your computer through Foldreel.",
     "privacyBody2": "When you start a download, Foldreel runs gallery-dl, which connects directly to the sites you gave it, plus any browser cookies or logins you configured on the Sites page. Those requests go to those sites, exactly as if you visited them yourself. If you set a proxy, traffic goes through it.",
-    "privacyBody3": "gallery-dl, yt-dlp, FFmpeg, and aria2c ship inside the installer itself, so nothing downloads after install. Everything Foldreel stores lives in the local data folder shown above and can be deleted at any time.",
+    "privacyBody3": "gallery-dl, yt-dlp, FFmpeg, and aria2c ship inside the installer itself. Foldreel contacts GitHub only to check for newer versions (of itself at launch, and of these tools when you press Check for updates) and to download an update you choose. No information about you is sent. Everything Foldreel stores lives in the local data folder shown above and can be deleted at any time.",
     "license": "License",
     "licenseDesc": "Foldreel is released under the MIT License.",
     "notices": "Open-source notices",
     "noticesDesc": "Third-party components bundled with Foldreel.",
     "noticesTagline": "Each component keeps its own license.",
-    "noticesFootnote": "gallery-dl and aria2c are licensed under GPL-2.0, FFmpeg under LGPL-2.1/GPL, and yt-dlp under the Unlicense - each bundled as a separate, unmodified executable that Foldreel invokes as a subprocess. Foldreel's own source is MIT."
+    "noticesFootnote": "gallery-dl and aria2c are licensed under GPL-2.0, FFmpeg under LGPL-2.1/GPL, and yt-dlp under the Unlicense - each bundled as a separate, unmodified executable that Foldreel invokes as a subprocess. Foldreel's own source is MIT.",
+    "updateStore": "Updated by the Microsoft Store"
   },
   "sites": {
     "title": "Sites",
@@ -477,5 +514,63 @@
     "close": "Close",
     "loading": "Loading…",
     "undo": "Undo"
+  },
+  "import": {
+    "title": "Import from Grabbr",
+    "row": "Move over from Grabbr",
+    "rowDesc": "Bring across your settings, history, watches, logins and download record. Nothing in Grabbr is changed or deleted.",
+    "find": "Find Grabbr",
+    "choose": "Choose folder",
+    "chooseTitle": "Choose the Grabbr data folder",
+    "none": "No Grabbr data found in the usual place. If you moved it, choose its folder yourself.",
+    "scanFailed": "Could not look for Grabbr data",
+    "badFolder": "That folder has no Grabbr data",
+    "failed": "The import failed. Nothing was changed.",
+    "found": "Found {{app}} data",
+    "running": "{{app}} is still running. Close it first, so both apps do not check the same watches.",
+    "whatLegend": "What to import",
+    "cat": {
+      "settings": "Settings",
+      "presets": "Presets and custom config",
+      "history": "Download history",
+      "watches": "Watches",
+      "sites": "Site logins",
+      "cookies": "Cookie files",
+      "archive": "Download record",
+      "tokens": "Login tokens"
+    },
+    "catDesc": {
+      "settings": "Folder layout, filenames, limits, language and theme.",
+      "presets": "Your saved presets and the gallery-dl overrides.",
+      "history": "Finished downloads only. Anything still queued is left behind.",
+      "watches": "Profiles and searches you were checking. Ones you already watch here are kept.",
+      "sites": "Usernames, passwords and tokens. Sites already set up here are kept.",
+      "cookies": "Saved browser logins. The newer copy of a file wins.",
+      "archive": "Remembers what was already downloaded, so nothing is fetched twice.",
+      "tokens": "gallery-dl sign-in tokens, for sites like Reddit and Flickr."
+    },
+    "reconnect": "Keep using my old download folder",
+    "reconnectDesc": "{{count}} media files found there. They stay where they are; nothing is copied or moved.",
+    "folderMissing": "The old download folder ({{path}}) was not found. Pick a new one under Download folder.",
+    "folderUnset": "The old install had no download folder set.",
+    "run": "Import",
+    "safe": "A backup of your current data is saved first. {{app}} stays untouched.",
+    "done": "Import finished",
+    "folderConnected": "Your old download folder is now the download folder.",
+    "backup": "Your previous Foldreel data was backed up before importing."
+  },
+  "components": {
+    "check": "Check for updates",
+    "checking": "Checking...",
+    "checkFailed": "Could not check for updates. Try again in a moment.",
+    "upToDate": "Up to date",
+    "updateTo": "Update to {{version}}",
+    "install": "Install",
+    "updating": "Updating",
+    "retry": "Try again",
+    "cantCheck": "Could not check",
+    "notInstalled": "Not installed",
+    "updateFailed": "The update failed",
+    "storeNote": "{{version}} is available. It comes with the next Foldreel update from the Microsoft Store."
   }
 }

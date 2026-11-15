@@ -7,11 +7,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 - **New interface.** Downloads is a workspace: a composer for the link and its options, a table-style
-  queue with progress, and recently finished downloads underneath. The Library is grouped by day with
+  queue with progress, and a grid of recently finished downloads underneath. The Library is grouped by day with
   thumbnails and a slide-over inspector. Settings has a category list on the left. Every page has a header
   with its own actions, a new palette taken from the app icon, native Windows fonts, and sentence-case labels.
 - Lists sit directly on the page instead of in boxes, with less explanatory text throughout.
-- Site logos (bundled with the app, nothing is fetched) in the queue, Library, Sites and the supported-sites row.
+- Site logos (bundled with the app, nothing is fetched) in the queue, Library and Sites.
 - The Library inspector shows pictures and video frames at their real proportions, and closes when you click anywhere outside it.
 - Convert hides Quality for formats it does not apply to (PNG, GIF) and explains each level; Convert and Organize can clear every selected file.
 - Organize can show the selected files as a list or as medium or large pictures, so you can see which is which before renaming.

@@ -3,6 +3,13 @@
 All notable changes to Foldreel are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+- The Library is now translated into all 44 non-English languages: its views, columns, menus, dialogs,
+  duplicate finder and tags, plus the new "When deleting files" setting. These are machine translations
+  and should be reviewed by a native speaker.
+
 ## [1.1.1] - 2026-11-26
 
 ### Added

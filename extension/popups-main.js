@@ -75,6 +75,22 @@
   }
 
   const TAGS = /^(DIV|A|SPAN|SECTION|ASIDE|IFRAME|INS|LABEL)$/;
+  const AD_TITLE = /offer|advert|sponsor|promo|\bads?\b|banner|pop-?up|interstitial/i;
+
+  // An ad injected by script: a box pinned to the window at the very top of the stacking order whose
+  // only content is a frame with no address of its own (the script writes the ad into it). Whole-window
+  // ones are the "invisible wall" that eats the click; corner ones are the floating offers.
+  function isScriptAdFrame(el, cs, r, z) {
+    if (z < 1000000 || el.tagName === 'IFRAME') return false;
+    if (el.children.length !== 1 || el.firstElementChild.tagName !== 'IFRAME') return false;
+    if (el.textContent && el.textContent.trim()) return false;
+    const f = el.firstElementChild;
+    const src = f.getAttribute('src');
+    if (src && src !== 'about:blank') return false;
+    if (CHAT.test(`${f.title} ${f.id} ${el.id} ${el.className}`)) return false;
+    if (AD_TITLE.test(f.title || '')) return true;
+    return cs.position === 'fixed' && r.width >= 0.85 * vw() && r.height >= 0.85 * vh();
+  }
 
   // 'link' | 'overlay' | 'ad' | '' for an element that is on the page right now.
   function classify(el) {
@@ -88,6 +104,7 @@
     if (r.width < 40 || r.height < 40) return '';
     if (el.closest(KEEP)) return ''; // backdrops of real menus and dialogs
     const z = parseInt(cs.zIndex, 10) || 0;
+    if (isScriptAdFrame(el, cs, r, z)) return 'ad';
 
     const faint = parseFloat(cs.opacity) < 0.1;
     const seeThrough = faint || (el.tagName !== 'IFRAME' && clearBackground(cs) && !hasContent(el));

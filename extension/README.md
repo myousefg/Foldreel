@@ -47,7 +47,11 @@ Then connect it to Foldreel:
     and hides invisible layers and links that sit over a page to catch your
     clicks (a see-through full-window layer, or a see-through link laid over a
     video). On a page that has already tried a pop-up it also hides floating ad
-    boxes pinned to a corner. Sign-in, payment and share windows opened by a
+    boxes pinned to a corner, and ads a script writes into a bare frame above
+    the page (a whole-window "offer" wall, a corner offer). A page that has
+    done this and then opens another site in a new tab (a redirect) has that tab
+    closed, and you stay where you were; the settings page has a switch for it.
+    Sign-in, payment and share windows opened by a
     button you press still work. If a site breaks, switch it off for that site
     here; it can also be turned off everywhere, and allowed sites managed, from
     the extension's settings page. Hidden things are only hidden, never deleted,

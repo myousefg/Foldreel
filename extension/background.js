@@ -158,7 +158,7 @@ chrome.webRequest.onBeforeRequest.addListener(
 );
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  chrome.storage.session.remove([`media_${tabId}`, `blocked_${tabId}`]);
+  chrome.storage.session.remove([`media_${tabId}`, `blocked_${tabId}`, `adchild_${tabId}`]);
 });
 
 // How many pop-ups and invisible layers the blocker stopped on a tab's current page,
@@ -172,6 +172,65 @@ function addBlocked(tabId, n) {
     .then((got) => chrome.storage.session.set({ [key]: (got[key] || 0) + n }))
     .catch(() => {});
 }
+
+// ── Close tabs that an ad page opens ──────────────────────────────────────────
+// A page that has already tried a pop-up or hidden an ad layer (its blocked count is above zero)
+// and then opens another site in a new tab is an ad redirect. That tab is closed, and the person
+// is put back on the page they were on. Sign-in, payment and share pages are left alone, as are
+// same-site tabs, sites on the allowed list, and everything while the blocker is switched off.
+const AD_TAB_AUTH_HOST = /(^|\.)(accounts\.google\.com|appleid\.apple\.com|login\.microsoftonline\.com|login\.live\.com|facebook\.com|github\.com|gitlab\.com|discord\.com|paypal\.com|stripe\.com|twitter\.com|x\.com|reddit\.com|pinterest\.com|linkedin\.com|whatsapp\.com|t\.me|telegram\.me|line\.me|vk\.com)$/i;
+const AD_TAB_AUTH_PATH = /oauth|authori[sz]e|\/login|sign-?in|\/sso|checkout|payment|\/share|intent\/tweet/i;
+const siteOf = (host) => host.replace(/^www\./, '').split('.').slice(-2).join('.');
+
+async function shouldCloseAdTab(openerId, url) {
+  let target;
+  try { target = new URL(url); } catch (_) { return false; }
+  if (!/^https?:$/.test(target.protocol)) return false;
+  if (AD_TAB_AUTH_HOST.test(target.hostname) || AD_TAB_AUTH_PATH.test(target.href)) return false;
+  const prefs = await chrome.storage.local.get({ popupsEnabled: true, popupsCloseTabs: true, popupsAllowedHosts: [] });
+  if (!prefs.popupsEnabled || !prefs.popupsCloseTabs) return false;
+  const opener = await chrome.tabs.get(openerId).catch(() => null);
+  if (!opener?.url) return false;
+  let from;
+  try { from = new URL(opener.url); } catch (_) { return false; }
+  if (!/^https?:$/.test(from.protocol)) return false;
+  const fromHost = from.hostname.replace(/^www\./, '');
+  if (prefs.popupsAllowedHosts.some((h) => fromHost === h || fromHost.endsWith(`.${h}`))) return false;
+  if (siteOf(target.hostname) === siteOf(from.hostname)) return false;
+  await blockedQueue;
+  const got = await chrome.storage.session.get(`blocked_${openerId}`);
+  return (got[`blocked_${openerId}`] || 0) > 0;
+}
+
+async function closeAdTab(tab, openerId) {
+  try {
+    await chrome.tabs.remove(tab.id);
+    addBlocked(openerId, 1);
+    if (tab.active) await chrome.tabs.update(openerId, { active: true }).catch(() => {});
+  } catch (_) { /* the tab is already gone */ }
+}
+
+chrome.tabs.onCreated.addListener(async (tab) => {
+  const openerId = tab.openerTabId;
+  if (openerId == null || tab.id == null) return;
+  const url = tab.pendingUrl || tab.url || '';
+  if (url && url !== 'about:blank') {
+    if (await shouldCloseAdTab(openerId, url)) closeAdTab(tab, openerId);
+    return;
+  }
+  // window.open('') followed by a redirect: look again when the real address shows up.
+  chrome.storage.session.set({ [`adchild_${tab.id}`]: openerId });
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
+  const key = `adchild_${tabId}`;
+  const url = change.url || (change.status === 'loading' ? tab.url : '');
+  if (!url || url === 'about:blank') return;
+  const got = await chrome.storage.session.get(key);
+  if (got[key] == null) return;
+  chrome.storage.session.remove(key);
+  if (await shouldCloseAdTab(got[key], url)) closeAdTab(tab, got[key]);
+});
 
 async function getCapturedMedia(tabId) {
   const key = `media_${tabId}`;

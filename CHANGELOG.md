@@ -29,8 +29,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   can switch it to delete permanently, which asks first, like Windows. Shift+Delete always asks.
 - **Pop-up and hidden-link blocker** in the browser extension (version 1.1.1). It stops pop-up and pop-under
   windows, and hides invisible layers and links that sit over a page to catch your clicks. On pages that already
-  tried a pop-up it also hides floating ad boxes. Switch it off everywhere in the extension's settings, or for one
-  site from the toolbar popup.
+  tried a pop-up it also hides floating ad boxes. It also hides ads that a script writes into a bare frame pinned
+  above the page, such as a whole-window "offer" wall or a corner offer box, and closes a tab that such a page
+  opens to another site (a redirect), unless it is a sign-in, payment or share page. Switch it off everywhere in
+  the extension's settings, or for one site from the toolbar popup; closing tabs has its own switch.
 - **Check all now** on the Watch page, and bigger Watch pictures that open at full size.
 - Convert shows files as a list, medium, or large pictures, like Organize.
 - A clear drop cue over the whole window while you drag files into Convert or Organize, and an

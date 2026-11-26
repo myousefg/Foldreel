@@ -158,7 +158,7 @@ The extension sends the page you are on to Foldreel, so you can skip copying the
 - Click the toolbar icon, or press **Alt+Shift+F**, to send the current page.
 - Right-click a link, image, or video and choose **Send to Foldreel**.
 - Hover an image or video to show a **Foldreel** button on it. Turn the button off for a single site from the popup, or everywhere from the extension's settings page.
-- The extension also blocks pop-ups and pop-unders, and hides invisible layers and links that sit over a page to catch your clicks. Turn it off for a single site from the popup, or everywhere from the settings page.
+- The extension also blocks pop-ups and pop-unders, and hides invisible layers, links and ad frames that sit over a page to catch your clicks, and closes tabs that such pages redirect to. Turn it off for a single site from the popup, or everywhere from the settings page.
 - Choose **Add** in the popup to share your login for the current site. If Foldreel already has that site's cookies, the button reads **Replace**.
 
 The extension talks only to Foldreel on your own computer, at `127.0.0.1`. It reads cookies only when you press the cookie button. See [extension/README.md](extension/README.md) for details.

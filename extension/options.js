@@ -81,7 +81,8 @@ function renderHosts(listEl, hosts, { button, label, empty, onClick }) {
 }
 
 async function renderPrefs() {
-  const { hoverEnabled, hoverHiddenHosts, popupsEnabled, popupsAllowedHosts } = await Prefs.get();
+  const { hoverEnabled, hoverHiddenHosts, popupsEnabled, popupsAllowedHosts, popupsCloseTabs } = await Prefs.get();
+  $('popups-close').checked = popupsCloseTabs !== false;
   $('hover-enabled').checked = hoverEnabled !== false;
   renderHosts(hostsEl, hoverHiddenHosts, {
     button: 'Show again', label: (h) => `Show the button on ${h} again`,
@@ -96,6 +97,7 @@ async function renderPrefs() {
 
 $('hover-enabled').addEventListener('change', (e) => Prefs.setHoverEnabled(e.target.checked));
 $('popups-enabled').addEventListener('change', (e) => Prefs.setPopupsEnabled(e.target.checked));
+$('popups-close').addEventListener('change', (e) => chrome.storage.local.set({ popupsCloseTabs: e.target.checked }));
 
 $('allowed-form').addEventListener('submit', async (e) => {
   e.preventDefault();

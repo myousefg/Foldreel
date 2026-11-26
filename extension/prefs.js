@@ -6,9 +6,10 @@
 //   hoverHiddenHosts  hostnames (no "www.") where it stays hidden regardless
 //   popupsEnabled     the pop-up and overlay blocker, globally
 //   popupsAllowedHosts hostnames where the blocker stays off regardless
+//   popupsCloseTabs   close a tab that an ad page opened (a redirect to another site)
 
 const Prefs = {
-  defaults: { hoverEnabled: true, hoverHiddenHosts: [], popupsEnabled: true, popupsAllowedHosts: [] },
+  defaults: { hoverEnabled: true, hoverHiddenHosts: [], popupsEnabled: true, popupsAllowedHosts: [], popupsCloseTabs: true },
 
   get() {
     return chrome.storage.local.get(this.defaults);

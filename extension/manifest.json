@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Foldreel",
-  "version": "1.1.0",
-  "description": "Send the current tab or a link straight to Foldreel, running on this computer.",
+  "version": "1.1.1",
+  "description": "Send the current tab or a link straight to Foldreel, running on this computer. Also blocks pop-ups and invisible click-catching layers.",
+  "minimum_chrome_version": "111",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -23,6 +24,21 @@
     "service_worker": "background.js"
   },
   "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["popups-main.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["popups.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    },
     {
       "matches": ["<all_urls>"],
       "js": ["hover.js"],

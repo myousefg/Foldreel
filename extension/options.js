@@ -56,13 +56,13 @@ $('disconnect').addEventListener('click', async () => {
 });
 
 // ── Floating button ─────────────────────────────────────────────────────────
-function renderHosts(hosts) {
-  hostsEl.textContent = '';
+function renderHosts(listEl, hosts, { button, label, empty, onClick }) {
+  listEl.textContent = '';
   if (!hosts.length) {
     const li = document.createElement('li');
     li.className = 'empty';
-    li.textContent = 'None. Use the toggle in the toolbar popup on any site.';
-    hostsEl.append(li);
+    li.textContent = empty;
+    listEl.append(li);
     return;
   }
   for (const host of hosts) {
@@ -72,21 +72,39 @@ function renderHosts(hosts) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn small';
-    btn.textContent = 'Show again';
-    btn.setAttribute('aria-label', `Show the button on ${host} again`);
-    btn.addEventListener('click', () => Prefs.setHostHidden(host, false));
+    btn.textContent = button;
+    btn.setAttribute('aria-label', label(host));
+    btn.addEventListener('click', () => onClick(host));
     li.append(name, btn);
-    hostsEl.append(li);
+    listEl.append(li);
   }
 }
 
 async function renderPrefs() {
-  const { hoverEnabled, hoverHiddenHosts } = await Prefs.get();
+  const { hoverEnabled, hoverHiddenHosts, popupsEnabled, popupsAllowedHosts } = await Prefs.get();
   $('hover-enabled').checked = hoverEnabled !== false;
-  renderHosts(hoverHiddenHosts);
+  renderHosts(hostsEl, hoverHiddenHosts, {
+    button: 'Show again', label: (h) => `Show the button on ${h} again`,
+    empty: 'None. Use the toggle in the toolbar popup on any site.', onClick: (h) => Prefs.setHostHidden(h, false),
+  });
+  $('popups-enabled').checked = popupsEnabled !== false;
+  renderHosts($('allowed-hosts'), popupsAllowedHosts, {
+    button: 'Block again', label: (h) => `Block pop-ups on ${h} again`,
+    empty: 'None. Use the toggle in the toolbar popup on any site.', onClick: (h) => Prefs.setPopupsAllowed(h, false),
+  });
 }
 
 $('hover-enabled').addEventListener('change', (e) => Prefs.setHoverEnabled(e.target.checked));
+$('popups-enabled').addEventListener('change', (e) => Prefs.setPopupsEnabled(e.target.checked));
+
+$('allowed-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = $('allowed-input');
+  const host = Prefs.normalizeHost(input.value);
+  if (!host || !host.includes('.')) { input.focus(); return; }
+  await Prefs.setPopupsAllowed(host, true);
+  input.value = '';
+});
 
 $('host-form').addEventListener('submit', async (e) => {
   e.preventDefault();

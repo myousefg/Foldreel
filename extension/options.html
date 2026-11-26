@@ -68,6 +68,28 @@
     </form>
   </div>
 
+  <h2 class="group-title" id="popups-heading">Pop-ups and hidden links</h2>
+  <div class="list" role="group" aria-labelledby="popups-heading">
+    <div class="item">
+      <div class="item-text">
+        <span class="item-title" id="popups-title">Block them on every site</span>
+        <span class="item-desc" id="popups-desc">Stops pop-up and pop-under windows, and hides invisible layers and links that sit over a page to catch your clicks. You can turn it off for one site from the toolbar popup.</span>
+      </div>
+      <label class="switch">
+        <input id="popups-enabled" type="checkbox" role="switch" aria-labelledby="popups-title" aria-describedby="popups-desc">
+        <span class="track" aria-hidden="true"></span>
+      </label>
+    </div>
+    <div class="item" style="display:block">
+      <span class="item-title" id="allowed-title">Allowed to open pop-ups</span>
+    </div>
+    <ul class="hosts" id="allowed-hosts" aria-labelledby="allowed-title"></ul>
+    <form id="allowed-form" class="inline block" style="border-top:1px solid var(--border)">
+      <input id="allowed-input" type="text" placeholder="example.com" aria-label="Site to stop blocking pop-ups on" autocomplete="off" spellcheck="false">
+      <button class="btn small" type="submit" style="min-height:34px">Allow</button>
+    </form>
+  </div>
+
   <h2 class="group-title" id="cookie-heading">Login cookies</h2>
   <div class="list block" role="group" aria-labelledby="cookie-heading">
     <p style="margin:0">Cookies are only sent when you press Add or Replace in the toolbar popup, never automatically. Sending again for the same site replaces the saved copy, so refresh them after you log in again.</p>

@@ -120,39 +120,58 @@ async function checkConnection() {
 }
 
 // Some sites (usually ones gallery-dl/yt-dlp have no extractor for) point a
-// plain <video src="..."> straight at a CDN URL instead of exposing any
-// download link - the same URL you'd otherwise have to dig out of
-// chrome://.../media-internals by hand. Chrome's webRequest API sees that
-// request the moment the page itself makes it, since it's watching real
-// network traffic rather than reading page source the way gallery-dl/yt-dlp
-// do - the same reason media-internals can see it and a page-source scraper
-// can't. `type: 'media'` is what a real <video>/<audio> element's own
-// request shows up as; it deliberately does NOT catch the fetch/XHR calls a
-// MediaSource-based player (blob: URLs - YouTube, X/Twitter, most modern
-// sites) uses to pull in segments, since those sites already have proper
-// extractors and don't need this at all. First request per page load wins
-// (a preroll ad or a second unrelated <video> firing later shouldn't
-// override the one the user actually wants), cleared the moment that tab's
-// main page navigates again.
+// plain <video src="..."> straight at a CDN URL, or stream HLS/DASH through a
+// script, instead of exposing any download link - the same URL you'd
+// otherwise dig out of the DevTools Network tab by hand. Chrome's webRequest
+// API sees those requests the moment the page makes them. Two kinds are kept:
+//   - `type: 'media'`: what a real <video>/<audio> element's own request shows
+//     up as.
+//   - a stream playlist (.m3u8 / .mpd) fetched by the page's own script. Only
+//     the playlist is kept; every other fetch/XHR is ignored, so YouTube,
+//     X/Twitter and the rest (which have proper extractors) are untouched.
+// The first request per page load wins (a preroll ad firing later shouldn't
+// override the video the user wants), except that a playlist replaces a plain
+// media file seen earlier. The page that made the request is stored too:
+// many CDNs answer a request without the right Referer with a placeholder
+// clip instead of the video. Cleared the moment the tab's main page navigates
+// again.
+const STREAM_PLAYLIST = /\.(?:m3u8|mpd)(?:[?#]|$)/i;
+
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (details.tabId < 0) return;
     const key = `media_${details.tabId}`;
     if (details.type === 'main_frame') {
-      chrome.storage.session.remove(key);
+      chrome.storage.session.remove([key, `blocked_${details.tabId}`]);
       return;
     }
+    const playlist = STREAM_PLAYLIST.test(details.url);
+    if (details.type !== 'media' && !playlist) return;
+    const referer = details.documentUrl || (details.initiator ? `${details.initiator}/` : '');
     chrome.storage.session.get(key).then((got) => {
-      if (got[key]) return; // first-seen-wins for this page load
-      chrome.storage.session.set({ [key]: { url: details.url, ts: Date.now() } });
+      const prev = got[key];
+      if (prev && !(playlist && !prev.playlist)) return; // first-seen-wins for this page load
+      chrome.storage.session.set({ [key]: { url: details.url, referer, playlist, ts: Date.now() } });
     });
   },
-  { urls: ['<all_urls>'], types: ['media', 'main_frame'] },
+  { urls: ['<all_urls>'], types: ['media', 'main_frame', 'xmlhttprequest', 'other'] },
 );
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  chrome.storage.session.remove(`media_${tabId}`);
+  chrome.storage.session.remove([`media_${tabId}`, `blocked_${tabId}`]);
 });
+
+// How many pop-ups and invisible layers the blocker stopped on a tab's current page,
+// for the toolbar popup. Reported by the content scripts (any frame); counts are
+// added one at a time so two frames reporting together do not overwrite each other.
+let blockedQueue = Promise.resolve();
+function addBlocked(tabId, n) {
+  const key = `blocked_${tabId}`;
+  blockedQueue = blockedQueue
+    .then(() => chrome.storage.session.get(key))
+    .then((got) => chrome.storage.session.set({ [key]: (got[key] || 0) + n }))
+    .catch(() => {});
+}
 
 async function getCapturedMedia(tabId) {
   const key = `media_${tabId}`;
@@ -164,7 +183,19 @@ async function getCapturedMedia(tabId) {
 // it and this service worker), so it reaches sendUrls/checkConnection
 // through a message instead of a direct call - this also keeps the pairing
 // secret out of the popup's own code entirely.
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type === 'popups-blocked') {
+    // Only this extension's own content scripts, and only for the tab they run in.
+    const n = Math.min(Math.max(parseInt(msg.n, 10) || 0, 0), 1000);
+    if (sender.id === chrome.runtime.id && sender.tab?.id != null && n) addBlocked(sender.tab.id, n);
+    return false;
+  }
+  if (msg?.type === 'popups-count') {
+    blockedQueue.then(() => chrome.storage.session.get(`blocked_${msg.tabId}`))
+      .then((got) => sendResponse({ count: got[`blocked_${msg.tabId}`] || 0 }))
+      .catch(() => sendResponse({ count: 0 }));
+    return true;
+  }
   if (msg?.type === 'send') {
     sendUrls(msg.urls, msg.options).then(sendResponse);
     return true; // keep the message channel open for the async sendResponse

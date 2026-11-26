@@ -43,10 +43,27 @@ Then connect it to Foldreel:
     the site the button says **Replace**, and sending overwrites the saved
     copy (refresh them after you log in again). Cookies are only ever sent when
     you press it.
+  - **Block pop-ups and hidden links** - stops pop-up and pop-under windows,
+    and hides invisible layers and links that sit over a page to catch your
+    clicks (a see-through full-window layer, or a see-through link laid over a
+    video). On a page that has already tried a pop-up it also hides floating ad
+    boxes pinned to a corner. Sign-in, payment and share windows opened by a
+    button you press still work. If a site breaks, switch it off for that site
+    here; it can also be turned off everywhere, and allowed sites managed, from
+    the extension's settings page. Hidden things are only hidden, never deleted,
+    and come back when you switch it off.
 - **Alt+Shift+F** sends the current page without opening the popup. Rebind it at
   `chrome://extensions/shortcuts`.
 
 ## Security notes
+
+- The pop-up blocker runs inside every page and frame you open (`<all_urls>`,
+  all frames, from document start). It only reads the page's own elements to
+  decide what to hide, keeps nothing, and sends nothing anywhere; the only
+  message it sends is a count of what it stopped, to this extension's own
+  background script, so the popup can show it.
+- The floating download button only reacts to a real click, never to a click
+  made by the page's own script.
 
 - The pairing code is a separate, persistent secret from the one the desktop
   app uses internally - it's scoped to the `/api/extension/` routes (queue a
@@ -56,7 +73,8 @@ Then connect it to Foldreel:
 - Regenerating or disabling the extension from Foldreel's Settings immediately
   invalidates the old code.
 - The unsupported-website fallback needs to watch network requests on any
-  page (`webRequest` + `<all_urls>`) to spot a direct video link the moment
-  the page itself requests it. It only ever looks at plain `<video>`/`<audio>`
-  element requests, ignores everything else, and nothing leaves the browser
-  until you actually click Send.
+  page (`webRequest` + `<all_urls>`) to spot a direct video link, or a stream
+  playlist (`.m3u8` or `.mpd`), the moment the page itself requests it. It
+  keeps only plain `<video>`/`<audio>` requests and playlists, ignores every
+  other request, remembers the page that made it so the download can send the
+  same Referer, and nothing leaves the browser until you actually click Send.

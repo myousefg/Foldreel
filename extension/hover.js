@@ -146,7 +146,9 @@
   async function onSend(e) {
     e.preventDefault();
     e.stopPropagation();
-    if (!currentEl) return;
+    // Only a real click. A page can call .click() on this button from its own script,
+    // which would otherwise send a download to Foldreel without anyone asking.
+    if (!e.isTrusted || !currentEl) return;
     let url = mediaUrlFor(currentEl);
     if (!url) return;
     // Video always goes through the page URL, never the raw <video> src. A

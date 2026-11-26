@@ -15,6 +15,7 @@ const el = {
   ytRow: $('yt-row'), quality: $('quality'), format: $('format'),
   send: $('send'), siteHeading: $('site-heading'),
   hoverSite: $('hover-site'), hoverDesc: $('hover-desc'),
+  popupsSite: $('popups-site'), popupsDesc: $('popups-desc'),
   cookieDesc: $('cookie-desc'), sendCookies: $('send-cookies'),
   status: $('status'), openSettings: $('open-settings'),
   disconnect: $('disconnect-link'), version: $('version'),
@@ -25,6 +26,8 @@ el.version.textContent = `v${chrome.runtime.getManifest().version}`;
 let currentUrl = '';
 let currentHost = '';
 let capturedMediaUrl = '';
+let capturedReferer = '';
+let currentTabId = null;
 
 function isYoutube(url) {
   try {
@@ -94,6 +97,21 @@ async function refreshHover() {
     : 'On images and videos';
 }
 
+async function refreshPopups() {
+  const { popupsEnabled, popupsAllowedHosts } = await Prefs.get();
+  const globallyOff = popupsEnabled === false;
+  const on = !globallyOff && !popupsAllowedHosts.includes(currentHost);
+  el.popupsSite.disabled = globallyOff;
+  el.popupsSite.checked = on;
+  if (globallyOff) { el.popupsDesc.textContent = 'Turned off for every site in Settings'; return; }
+  if (!on) { el.popupsDesc.textContent = 'Off for this site'; return; }
+  let count = 0;
+  try { count = (await chrome.runtime.sendMessage({ type: 'popups-count', tabId: currentTabId }))?.count || 0; } catch { /* no background yet */ }
+  el.popupsDesc.textContent = count
+    ? `Stopped ${count} on this page`
+    : 'Nothing stopped on this page';
+}
+
 async function refreshCookieStatus() {
   if (!currentHost) {
     el.cookieDesc.textContent = "Can't be read from this page";
@@ -115,6 +133,12 @@ async function refreshCookieStatus() {
 
 el.hoverSite.addEventListener('change', async () => {
   await Prefs.setHostHidden(currentHost, !el.hoverSite.checked);
+  setStatus('');
+});
+
+el.popupsSite.addEventListener('change', async () => {
+  await Prefs.setPopupsAllowed(currentHost, !el.popupsSite.checked);
+  refreshPopups();
   setStatus('');
 });
 
@@ -150,8 +174,9 @@ el.send.addEventListener('click', async () => {
   if (useDetected) {
     // The CDN this points at almost always hotlink-checks the Referer, the
     // same way a real browser tab would send it - the current page is that
-    // referer, since it's the one that actually requested this URL.
-    options.referer = currentUrl;
+    // referer: the page that actually requested this URL (it may be a
+    // player frame on another site), else the tab's own page.
+    options.referer = capturedReferer || currentUrl;
   } else if (!el.ytRow.hidden) {
     if (!el.quality.hidden && el.quality.value !== 'best') options.quality = el.quality.value;
     if (el.format.value !== 'mp4') options.format = el.format.value;
@@ -227,6 +252,8 @@ async function init() {
   el.send.disabled = !sendable;
   el.siteHeading.textContent = currentHost ? `On ${currentHost}` : 'This site';
   el.hoverSite.disabled = !sendable;
+  el.popupsSite.disabled = !sendable;
+  currentTabId = tab?.id ?? null;
   el.ytRow.hidden = !isYoutube(currentUrl);
   el.quality.hidden = el.format.value === 'mp3';
 
@@ -234,12 +261,13 @@ async function init() {
     const captured = await chrome.runtime.sendMessage({ type: 'captured-media', tabId: tab.id });
     if (captured?.url) {
       capturedMediaUrl = captured.url;
+      capturedReferer = captured.referer || '';
       el.mediaUrl.textContent = captured.url;
       el.mediaDetect.hidden = false;
     }
   }
 
-  if (sendable) refreshHover();
+  if (sendable) { refreshHover(); refreshPopups(); }
   refreshConnection();
 }
 

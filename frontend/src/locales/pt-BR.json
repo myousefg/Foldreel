@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "PAINEL",
+    "library": "Biblioteca",
     "history": "HISTÓRICO",
     "sites": "SITES",
     "settings": "CONFIGURAÇÕES",

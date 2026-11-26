@@ -32,8 +32,8 @@ def _free_port() -> int:
 
 
 class Live:
-    def __init__(self, port: int, data: Path, out: Path, appdata: Path):
-        self.port, self.data, self.out, self.appdata = port, data, out, appdata
+    def __init__(self, port: int, data: Path, out: Path, appdata: Path, trash: Path):
+        self.port, self.data, self.out, self.appdata, self.trash = port, data, out, appdata, trash
 
     def request(self, method, path, body=None, headers=None, token=True):
         h = {"Content-Type": "application/json"}
@@ -59,15 +59,16 @@ def live(tmp_path_factory):
     data = tmp_path_factory.mktemp("api-data")
     out = tmp_path_factory.mktemp("api-out")
     appdata = tmp_path_factory.mktemp("api-appdata")  # so import detection never sees a real Grabbr install
+    trash = tmp_path_factory.mktemp("api-trash")  # stands in for the Recycle Bin, so tests never touch the real one
     port = _free_port()
     env = dict(os.environ, FOLDREEL_DATA=str(data), FOLDREEL_PORT=str(port), APPDATA=str(appdata),
-               FOLDREEL_TOKEN=TOKEN, FOLDREEL_DEFAULT_OUTPUT=str(out))
+               FOLDREEL_TOKEN=TOKEN, FOLDREEL_DEFAULT_OUTPUT=str(out), FOLDREEL_TRASH_DIR=str(trash))
     if REPO_BIN.is_dir():
         env["FOLDREEL_BUNDLED_BIN"] = str(REPO_BIN)  # the fetched ffmpeg, when present
     env.pop("FOLDREEL_PARENT_PID", None)
     proc = subprocess.Popen([sys.executable, str(BACKEND_DIR / "server.py")], env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    server = Live(port, data, out, appdata)
+    server = Live(port, data, out, appdata, trash)
     try:
         for _ in range(120):
             try:
@@ -347,3 +348,315 @@ def test_import_run_brings_history_and_reconnects_the_folder(live, grabbr_folder
     settings = live.request("GET", "/api/settings")[1]
     assert settings["theme"] == "dark"
     assert settings["output_dir"] == str(tmp_path / "old-downloads")
+
+
+def _out(live) -> Path:
+    # Earlier tests (the Grabbr import) move the output folder, so ask the server.
+    return Path(live.request("GET", "/api/settings")[1]["output_dir"])
+
+
+def _add_job(live, job_id, files, dest, ok=0, skipped=0):
+    c = sqlite3.connect(str(live.data / "foldreel.db"))
+    c.execute("INSERT INTO jobs (id, url, status, files_ok, files_skipped, files_json, dest_dir) VALUES (?, ?, 'done', ?, ?, ?, ?)",
+              (job_id, "https://example.test/" + job_id, ok, skipped, json.dumps([str(f) for f in files]), str(dest)))
+    c.commit(); c.close()
+
+
+def test_job_files_finds_a_file_whose_recorded_name_differs_from_disk(live):
+    folder = _out(live) / "renamed"
+    folder.mkdir()
+    (folder / "123.video-ab12.mp4").write_bytes(b"x")  # the downloader added a tag before the extension
+    _add_job(live, "files-renamed", [folder / "123.mp4"], folder, ok=1)
+    status, body = live.request("GET", "/api/jobs/files-renamed/files")
+    assert status == 200
+    assert [f["name"] for f in body["files"]] == ["123.video-ab12.mp4"]
+
+
+def test_job_files_counts_only_files_that_exist(live):
+    folder = _out(live) / "partial"
+    folder.mkdir()
+    (folder / "a.jpg").write_bytes(b"x")
+    _add_job(live, "files-partial", [folder / "a.jpg", folder / "gone.jpg"], folder, ok=2)
+    body = live.request("GET", "/api/jobs/files-partial/files")[1]
+    assert body["count"] == 1 and len(body["files"]) == 1
+
+
+def test_job_files_shows_the_folder_when_everything_was_skipped(live):
+    folder = _out(live) / "watched"
+    folder.mkdir()
+    for name in ("one.jpg", "two.mp4"):
+        (folder / name).write_bytes(b"x")
+    _add_job(live, "files-skipped", [], folder, ok=0, skipped=2)
+    names = {f["name"] for f in live.request("GET", "/api/jobs/files-skipped/files")[1]["files"]}
+    assert names == {"one.jpg", "two.mp4"}
+
+
+def test_job_files_never_scans_the_shared_output_root(live):
+    (_out(live) / "stray.jpg").write_bytes(b"x")
+    _add_job(live, "files-root", [], _out(live), ok=0, skipped=3)
+    assert live.request("GET", "/api/jobs/files-root/files")[1]["files"] == []
+
+def _lib_tree(live, base):
+    root = _out(live) / base
+    for rel in ("a/one.jpg", "a/two.png", "b/clip.mp4", "top.webp", "a/deep/three.jpg"):
+        f = root / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"x" * (len(rel) * 10))
+    (root / "a" / "notes.txt").write_text("not media")
+    return root
+
+
+def _lib(live, query):
+    status, body = live.request("GET", "/api/library?" + query)
+    assert status == 200, body
+    return body
+
+
+def body_names(live, query):
+    return [i["name"] for i in _lib(live, query)["items"]]
+
+
+def _post(live, path, body):
+    return live.request("POST", "/api/library/" + path, body)
+
+
+def test_library_lists_folders_and_the_files_directly_inside(live):
+    _lib_tree(live, "lib1")
+    body = _lib(live, "folder=lib1&refresh=true")
+    assert {f["name"]: f["count"] for f in body["folders"]} == {"a": 3, "b": 1}
+    assert [i["name"] for i in body["items"]] == ["top.webp"]
+    assert body["counts"] == {"image": 4, "video": 1}, "the chips count the whole subtree"
+    assert body["scope_count"] == 5
+
+
+def test_library_everything_view_searches_filters_and_sorts(live):
+    _lib_tree(live, "lib2")
+    q = "folder=lib2&view=all&refresh=true"
+    assert body_names(live, q + "&sort=name") == ["clip.mp4", "one.jpg", "three.jpg", "top.webp", "two.png"]
+    assert body_names(live, q + "&sort=name&order=desc")[0] == "two.png"
+    assert body_names(live, q + "&q=thr") == ["three.jpg"]
+    assert body_names(live, q + "&kind=video") == ["clip.mp4"]
+    assert body_names(live, q + "&sort=size")[0] == "three.jpg", "largest first by default"
+    assert body_names(live, "folder=lib2&q=clip") == ["clip.mp4"], "a search looks inside sub-folders too"
+
+
+def test_library_sorts_names_the_way_a_file_manager_does(live):
+    root = _out(live) / "lib-nat"
+    root.mkdir()
+    for n in ("img10.jpg", "img2.jpg", "img1.jpg"):
+        (root / n).write_bytes(b"x")
+    assert body_names(live, "folder=lib-nat&sort=name&refresh=true") == ["img1.jpg", "img2.jpg", "img10.jpg"]
+
+
+def test_library_rejects_a_folder_that_escapes_the_download_folder(live):
+    assert live.request("GET", "/api/library?folder=../..")[0] == 400
+
+
+def test_library_groups_by_creator_and_reports_the_group_sizes(live):
+    root = _out(live) / "lib-grp"
+    for rel in ("insta/anna/a1.jpg", "insta/anna/a2.jpg", "insta/ben/b1.jpg", "x/ben/b2.jpg"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(b"x")
+    # Under the download folder the first level is the site and the second the creator.
+    body = _lib(live, "folder=lib-grp&view=all&group=creator&sort=name&refresh=true")
+    got = {g["key"]: g["count"] for g in body["groups"]}
+    assert sum(got.values()) == 4 and len(got) >= 2
+    keys = [i.get("g", "") for i in body["items"]]
+    assert keys == sorted(keys, key=lambda k: (k == "", k.lower())), "items arrive grouped, in group order"
+    by_site = _lib(live, "folder=lib-grp&view=all&group=site&refresh=true")
+    assert sum(g["count"] for g in by_site["groups"]) == 4
+
+
+def test_library_reads_creator_and_series_from_a_sidecar(live):
+    root = _out(live) / "lib-meta"
+    root.mkdir()
+    (root / "p1.jpg").write_bytes(b"x")
+    (root / "p1.jpg.json").write_text(json.dumps({"category": "pixiv", "user": {"name": "Hoshi"}, "title": "Spring set"}))
+    item = _lib(live, "folder=lib-meta&view=all&refresh=true")["items"][0]
+    assert (item["site"], item["creator"], item["series"]) == ("pixiv", "Hoshi", "Spring set")
+    assert body_names(live, "folder=lib-meta&view=all&q=hoshi") == ["p1.jpg"], "search covers creator and series"
+
+
+def test_library_move_moves_files_renames_collisions_and_follows_history(live):
+    root = _lib_tree(live, "lib3")
+    (root / "b" / "one.jpg").write_bytes(b"older")           # same name already in the destination
+    (root / "a" / "one.jpg.json").write_text("{}")           # metadata sidecar travels with the file
+    _add_job(live, "lib3-job", [root / "a" / "one.jpg"], root / "a", ok=1)
+    status, body = _post(live, "move", {"paths": [str(root / "a" / "one.jpg")], "dest": "lib3/b"})
+    assert status == 200 and body["errors"] == []
+    assert (root / "b" / "one.jpg").read_bytes() == b"older", "never overwrite"
+    assert (root / "b" / "one (1).jpg").is_file() and not (root / "a" / "one.jpg").exists()
+    assert (root / "b" / "one (1).jpg.json").is_file()
+    files = live.request("GET", "/api/jobs/lib3-job/files")[1]["files"]
+    assert [f["name"] for f in files] == ["one (1).jpg"], "history follows the moved file"
+    assert "one (1).jpg" in body_names(live, "folder=lib3/b"), "the index follows too"
+
+
+def test_library_move_can_create_a_folder_and_stays_inside_the_download_folder(live, tmp_path):
+    root = _lib_tree(live, "lib4")
+    ok = _post(live, "move", {"paths": [str(root / "top.webp")], "dest": "lib4", "new_folder": 'Best: of?'})[1]
+    assert (root / "Best of" / "top.webp").is_file() and ok["errors"] == []
+    outside = tmp_path / "elsewhere.jpg"
+    outside.write_bytes(b"x")
+    bad = _post(live, "move", {"paths": [str(outside)], "dest": "lib4"})[1]
+    assert bad["moved"] == [] and len(bad["errors"]) == 1 and outside.exists()
+    assert _post(live, "move", {"paths": [], "dest": "../.."})[0] == 400
+
+
+def test_library_move_takes_a_whole_folder_but_not_into_itself(live):
+    root = _lib_tree(live, "lib5")
+    ok = _post(live, "move", {"paths": [str(root / "a")], "dest": "lib5/b"})[1]
+    assert ok["errors"] == [] and (root / "b" / "a" / "deep" / "three.jpg").is_file()
+    assert "three.jpg" in body_names(live, "folder=lib5/b/a&view=all")
+    assert not any(f["rel"] == "lib5/a" for f in _lib(live, "folder=lib5")["folders"])
+    bad = _post(live, "move", {"paths": [str(root / "b")], "dest": "lib5/b/a"})[1]
+    assert bad["moved"] == [] and "inside itself" in bad["errors"][0]
+
+
+def test_library_copy_leaves_the_original_and_never_overwrites(live):
+    root = _lib_tree(live, "lib6")
+    r = _post(live, "paste", {"op": "copy", "paths": [str(root / "top.webp")], "dest": "lib6"})[1]
+    assert (root / "top.webp").is_file() and (root / "top (1).webp").is_file() and r["errors"] == []
+    assert sorted(n for n in body_names(live, "folder=lib6") if n.startswith("top")) == ["top (1).webp", "top.webp"]
+
+
+def test_library_rename_a_file_with_its_sidecar_and_refuses_clashes(live):
+    root = _lib_tree(live, "lib7")
+    (root / "a" / "one.jpg.json").write_text("{}")
+    assert _post(live, "rename", {"path": str(root / "a" / "one.jpg"), "name": "uno.jpg"})[0] == 200
+    assert (root / "a" / "uno.jpg").is_file() and (root / "a" / "uno.jpg.json").is_file()
+    names = body_names(live, "folder=lib7/a")
+    assert "uno.jpg" in names and "one.jpg" not in names
+    assert _post(live, "rename", {"path": str(root / "a" / "uno.jpg"), "name": "two.png"})[0] == 409
+    assert _post(live, "rename", {"path": str(root / "a" / "uno.jpg"), "name": "bad/name?.jpg"})[0] == 200
+    assert (root / "a" / "badname.jpg").is_file(), "characters Windows forbids are dropped"
+    assert _post(live, "rename", {"path": str(root / "a" / "badname.jpg"), "name": "CON"})[0] == 400
+
+
+def test_library_rename_a_folder_moves_everything_in_it(live):
+    root = _lib_tree(live, "lib8")
+    _add_job(live, "lib8-job", [root / "a" / "deep" / "three.jpg"], root / "a" / "deep", ok=1)
+    live.request("GET", "/api/library?refresh=true")
+    _post(live, "favorite", {"paths": [str(root / "a" / "one.jpg")], "value": True})
+    assert _post(live, "rename", {"path": str(root / "a"), "name": "album"})[0] == 200
+    assert (root / "album" / "deep" / "three.jpg").is_file() and not (root / "a").exists()
+    assert "three.jpg" in body_names(live, "folder=lib8/album&view=all")
+    files = live.request("GET", "/api/jobs/lib8-job/files")[1]["files"]
+    assert [f["name"] for f in files] == ["three.jpg"], "history follows the renamed folder"
+    fav = _lib(live, "folder=lib8&view=all&place=favorites")["items"]
+    assert [Path(i["path"]) for i in fav] == [root / "album" / "one.jpg"], "favorites follow it too"
+
+
+def test_library_mkdir_numbers_a_clash(live):
+    root = _lib_tree(live, "lib9")
+    live.request("GET", "/api/library?refresh=true")
+    a = _post(live, "mkdir", {"parent": "lib9"})[1]
+    b = _post(live, "mkdir", {"parent": "lib9"})[1]
+    assert (a["name"], b["name"]) == ("New folder", "New folder (1)") and (root / "New folder (1)").is_dir()
+    assert any(f["name"] == "New folder" for f in _lib(live, "folder=lib9")["folders"]), "empty folders show"
+    assert _post(live, "mkdir", {"parent": "../..", "name": "x"})[0] == 400
+
+
+def test_library_delete_to_the_recycle_bin_and_permanently(live):
+    root = _lib_tree(live, "lib10")
+    live.request("GET", "/api/library?refresh=true")
+    (root / "a" / "one.jpg.json").write_text("{}")
+    r = _post(live, "delete", {"paths": [str(root / "a" / "one.jpg")], "mode": "recycle"})[1]
+    assert r["errors"] == [] and r["mode"] == "recycle"
+    assert not (root / "a" / "one.jpg").exists() and not (root / "a" / "one.jpg.json").exists()
+    assert (live.trash / "one.jpg").is_file(), "it went to the bin, not into the void"
+    assert "one.jpg" not in body_names(live, "folder=lib10/a")
+
+    r = _post(live, "delete", {"paths": [str(root / "b")], "mode": "permanent"})[1]
+    assert r["errors"] == [] and not (root / "b").exists()
+    assert not list(live.trash.glob("clip.mp4")), "permanent means it is not in the bin"
+    assert not any(f["name"] == "b" for f in _lib(live, "folder=lib10")["folders"])
+
+
+def test_library_delete_never_leaves_the_download_folder_or_removes_it(live, tmp_path):
+    outside = tmp_path / "keep.jpg"
+    outside.write_bytes(b"x")
+    r = _post(live, "delete", {"paths": [str(outside), str(_out(live))], "mode": "permanent"})[1]
+    assert outside.exists() and _out(live).is_dir() and r["deleted"] == [] and len(r["errors"]) == 2
+
+
+def test_library_favorites_and_tags_filter_follow_a_move_and_list_in_the_tree(live):
+    root = _lib_tree(live, "lib11")
+    live.request("GET", "/api/library?refresh=true")
+    one, two = str(root / "a" / "one.jpg"), str(root / "a" / "two.png")
+    _post(live, "favorite", {"paths": [one], "value": True})
+    _post(live, "tags", {"paths": [one, two], "add": ["Holiday", "holiday", " beach "]})
+    _post(live, "tags", {"paths": [two], "remove": ["BEACH"]})
+    assert body_names(live, "folder=lib11&view=all&place=favorites") == ["one.jpg"]
+    assert sorted(body_names(live, "folder=lib11&view=all&tag=holiday")) == ["one.jpg", "two.png"]
+    assert body_names(live, "folder=lib11&view=all&tag=beach") == ["one.jpg"]
+    assert body_names(live, "folder=lib11&view=all&q=holi") != [], "search finds a tag"
+    item = next(i for i in _lib(live, "folder=lib11&view=all")["items"] if i["name"] == "one.jpg")
+    assert item["fav"] is True and item["tags"] == ["beach", "Holiday"]
+    _post(live, "move", {"paths": [one], "dest": "lib11/b"})
+    moved = next(i for i in _lib(live, "folder=lib11/b&view=all")["items"] if i["name"] == "one.jpg")
+    assert moved["fav"] is True and moved["tags"] == ["beach", "Holiday"], "the file keeps what you told the library about it"
+    tree = live.request("GET", "/api/library/tree")[1]
+    counts = {t["tag"].lower(): t["count"] for t in tree["tags"]}
+    assert counts["holiday"] >= 2 and counts["beach"] >= 1 and tree["favorites"] >= 1
+    _post(live, "favorite", {"paths": [str(root / "b" / "one.jpg")], "value": False})
+    assert body_names(live, "folder=lib11&view=all&place=favorites") == []
+
+
+def test_library_notices_changes_made_outside_the_app(live):
+    root = _lib_tree(live, "lib12")
+    live.request("GET", "/api/library?refresh=true")
+    v0 = live.request("GET", "/api/library/status")[1]["version"]
+    (root / "new.jpg").write_bytes(b"x")
+    assert "new.jpg" in body_names(live, "folder=lib12&refresh=true")
+    assert live.request("GET", "/api/library/status")[1]["version"] > v0
+    _post(live, "favorite", {"paths": [str(root / "new.jpg")], "value": True})
+    (root / "new.jpg").unlink()
+    assert "new.jpg" not in body_names(live, "folder=lib12&refresh=true")
+    assert _lib(live, "folder=lib12&view=all&place=favorites")["items"] == [], "a vanished file leaves no stale favorite"
+
+
+def test_library_finds_duplicates_by_content(live):
+    root = _out(live) / "lib-dup"
+    root.mkdir()
+    (root / "a.jpg").write_bytes(b"same" * 100)
+    (root / "copy of a.jpg").write_bytes(b"same" * 100)
+    (root / "other.jpg").write_bytes(b"diff" * 100)      # same size, different content
+    (root / "single.jpg").write_bytes(b"alone")
+    live.request("GET", "/api/library?refresh=true")
+    groups = live.request("GET", "/api/library/duplicates")[1]["groups"]
+    mine = [g for g in groups if {f["name"] for f in g["files"]} == {"a.jpg", "copy of a.jpg"}]
+    assert len(mine) == 1 and mine[0]["size"] == 400
+    assert not any("other.jpg" in {f["name"] for f in g["files"]} for g in groups)
+
+
+def test_library_undo_puts_a_moved_file_back(live):
+    root = _lib_tree(live, "lib13")
+    moved = _post(live, "move", {"paths": [str(root / "top.webp")], "dest": "lib13/b"})[1]["moved"]
+    back = _post(live, "relocate", {"items": [{"from": m["to"], "to": m["from"]} for m in moved]})[1]
+    assert back["errors"] == [] and (root / "top.webp").is_file() and not (root / "b" / "top.webp").exists()
+    assert "top.webp" in body_names(live, "folder=lib13")
+
+
+def test_library_paths_lists_everything_in_order(live):
+    _lib_tree(live, "lib14")
+    live.request("GET", "/api/library?refresh=true")
+    paths = live.request("GET", "/api/library/paths?folder=lib14&view=all&sort=name")[1]["paths"]
+    assert [Path(p).name for p in paths] == ["clip.mp4", "one.jpg", "three.jpg", "top.webp", "two.png"]
+
+
+def test_library_info_reports_size_and_dimensions(live):
+    root = _out(live) / "lib-info"
+    root.mkdir()
+    _tiny_png(root / "px.png")
+    live.request("GET", "/api/library?refresh=true")
+    from urllib.parse import quote
+    info = live.request("GET", "/api/library/info?path=" + quote(str(root / "px.png")))[1]
+    assert (info["width"], info["height"]) == (1, 1) and info["kind"] == "image"
+    assert live.request("GET", "/api/library/info?path=" + quote(str(Path(sys.executable))))[0] == 400
+
+
+def test_delete_mode_is_a_setting_that_only_takes_two_values(live):
+    assert live.request("PUT", "/api/settings", {"delete_mode": "permanent"})[1]["delete_mode"] == "permanent"
+    assert live.request("PUT", "/api/settings", {"delete_mode": "shred"})[0] == 400
+    assert live.request("PUT", "/api/settings", {"delete_mode": "recycle"})[1]["delete_mode"] == "recycle"

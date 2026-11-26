@@ -9,7 +9,7 @@ import { sentenceCase } from '@/lib/utils';
 
 // Page titles come from the nav labels, so no new strings are needed in 46 locales.
 const PAGE_TITLE_KEYS = {
-  '/': 'nav.dashboard', '/history': 'nav.history', '/watch': 'nav.watch',
+  '/': 'nav.dashboard', '/library': 'nav.library', '/history': 'nav.history', '/watch': 'nav.watch',
   '/convert': 'nav.convert', '/organize': 'nav.organize', '/settings': 'nav.settings',
   '/advanced': 'nav.advanced', '/sites': 'nav.sites',
 };
@@ -21,6 +21,8 @@ export default function Layout({ children }) {
   const [actionsEl, setActionsEl] = useState(null);
   const [subtitleEl, setSubtitleEl] = useState(null);
   const titleKey = PAGE_TITLE_KEYS[location.pathname];
+  // The Library is a file explorer: it takes the whole window instead of the centred column.
+  const wide = location.pathname === '/library';
 
   return (
     <HeaderSlots.Provider value={{ actions: actionsEl, subtitle: subtitleEl }}>
@@ -32,9 +34,9 @@ export default function Layout({ children }) {
             initial={routeFade.initial}
             animate={routeFade.animate}
             transition={routeFade.transition}
-            className="px-10 pt-7 pb-16 max-w-5xl mx-auto w-full"
+            className={wide ? 'px-6 pt-5 pb-0 w-full' : 'px-10 pt-7 pb-16 max-w-5xl mx-auto w-full'}
           >
-            <header className="flex items-center gap-4 min-h-9 mb-6">
+            <header className={`flex items-center gap-4 min-h-9 ${wide ? 'mb-3' : 'mb-6'}`}>
               {titleKey && (
                 <h1 className="text-xl font-semibold tracking-tight truncate">
                   {sentenceCase(t(titleKey), lang)}

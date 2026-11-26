@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "TABLEAU DE BORD",
+    "library": "Bibliothèque",
     "history": "HISTORIQUE",
     "sites": "SITES",
     "settings": "PARAMÈTRES",

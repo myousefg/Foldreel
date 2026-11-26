@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "OVERSIGT",
+    "library": "Bibliotek",
     "history": "HISTORIK",
     "sites": "SITES",
     "settings": "INDSTILLINGER",

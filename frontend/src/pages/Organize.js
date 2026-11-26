@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { Reorder } from 'motion/react';
 import {
   Plus, ArrowRight, Undo2, Loader2, Check, ImageIcon, FolderCog, Braces, GripVertical, X, Trash2,
-  Rows3, LayoutList, Maximize2, ArrowLeftRight, FolderTree,
+  ArrowLeftRight, FolderTree,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +11,9 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { PageActions } from '@/components/PageHeader';
-import { Segmented } from '@/components/kit';
+import DropOverlay from '@/components/DropOverlay';
+import ViewSwitch, { VIEW_BOX, loadView, saveView } from '@/components/ViewSwitch';
+import { handoff } from '@/lib/handoff';
 import { useI18n } from '@/context/I18nProvider';
 import { organizeApi, organizeThumbUrl } from '@/lib/api';
 import { isElectron } from '@/lib/electron';
@@ -25,13 +27,6 @@ const RENAME_TOKENS = ['name', 'n', 'sequence', 'originalname', 'originalname_st
 const RENAME_TOKEN_TEXT = {
   name: '{name}', n: '{n}', sequence: '{sequence}',
   originalname: '{originalname}', originalname_stripped: '{originalname_stripped}',
-};
-
-// Preview sizes: a row of names, small pictures, or pictures big enough to tell apart.
-const VIEWS = {
-  list:   { box: 32,  fetch: 320 },
-  medium: { box: 112, fetch: 320 },
-  large:  { box: 260, fetch: 640 },
 };
 
 // Drops a "12. "/"12-"/"12_"/"12) " prefix some folders already have, so
@@ -61,7 +56,7 @@ function computeNewName(item, name, template, n) {
 
 function Thumb({ path, isDir, view }) {
   const [failed, setFailed] = useState(false);
-  const { box, fetch } = VIEWS[view];
+  const { box, fetch } = VIEW_BOX[view];
   const large = view === 'large';
   return (
     <span
@@ -139,15 +134,9 @@ export default function Organize() {
   const [renameName, setRenameName] = useState('');
   const [renameTemplate, setRenameTemplate] = useState(DEFAULT_FILE_TEMPLATE);
   const [renameStart, setRenameStart] = useState(1);
-  const [renameDragging, setRenameDragging] = useState(false);
   const [renameApplying, setRenameApplying] = useState(false);
-  const [view, setView] = useState(() => {
-    try { return localStorage.getItem('foldreel_organize_view') || 'medium'; } catch { return 'medium'; }
-  });
-  const changeView = (v) => {
-    setView(v);
-    try { localStorage.setItem('foldreel_organize_view', v); } catch { /* storage unavailable */ }
-  };
+  const [view, setView] = useState(() => loadView('foldreel_organize_view'));
+  const changeView = (v) => { setView(v); saveView('foldreel_organize_view', v); };
 
   const addStagedPaths = async (paths) => {
     const fresh = sortPathsByName(paths.filter(p => !staged.some(s => s.path === p)));
@@ -170,6 +159,13 @@ export default function Organize() {
     }
   };
 
+  // Files sent here from the Library start the list.
+  useEffect(() => {
+    const sent = handoff.take('organize');
+    if (sent?.length) addStagedPaths(sent);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const browseStagedItems = async () => {
     if (!isElectron) return;
     const paths = await window.electronAPI.selectFiles({
@@ -181,7 +177,6 @@ export default function Organize() {
 
   const onRenameDrop = async (e) => {
     e.preventDefault();
-    setRenameDragging(false);
     if (!isElectron) return;
     const files = [...(e.dataTransfer?.files || [])];
     const paths = [];
@@ -222,10 +217,10 @@ export default function Organize() {
   return (
     <div
       className="space-y-8"
-      onDragOver={e => { e.preventDefault(); setRenameDragging(true); }}
-      onDragLeave={e => { if (e.currentTarget === e.target) setRenameDragging(false); }}
+      onDragOver={e => e.preventDefault()}
       onDrop={onRenameDrop}
     >
+      <DropOverlay />
       <PageActions>
         {staged.length > 0 && (
           <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" onClick={() => setStaged([])} data-testid="rename-clear-btn">
@@ -246,7 +241,7 @@ export default function Organize() {
       {staged.length === 0 ? (
         <button
           type="button" onClick={browseStagedItems} disabled={!isElectron}
-          className={`w-full rounded-xl border border-dashed py-14 flex flex-col items-center gap-3 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${renameDragging ? 'border-ring bg-accent/40' : 'border-border'}`}
+          className={`w-full rounded-xl border border-dashed py-14 flex flex-col items-center gap-3 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring border-border`}
         >
           <span className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
             <FolderTree className="w-[18px] h-[18px] text-muted-foreground" aria-hidden="true" />
@@ -275,14 +270,7 @@ export default function Organize() {
 
           <div className="flex items-center justify-between px-3">
             <span className="text-xs text-muted-foreground tabular-nums">{staged.length}</span>
-            <Segmented
-              label={t('organize.viewLabel')} value={view} onChange={changeView}
-              options={[
-                { value: 'list', label: <span className="inline-flex items-center gap-1.5"><Rows3 className="w-3.5 h-3.5" aria-hidden="true" />{t('organize.view.list')}</span> },
-                { value: 'medium', label: <span className="inline-flex items-center gap-1.5"><LayoutList className="w-3.5 h-3.5" aria-hidden="true" />{t('organize.view.medium')}</span> },
-                { value: 'large', label: <span className="inline-flex items-center gap-1.5"><Maximize2 className="w-3.5 h-3.5" aria-hidden="true" />{t('organize.view.large')}</span> },
-              ]}
-            />
+            <ViewSwitch value={view} onChange={changeView} />
           </div>
 
           <Reorder.Group axis="y" values={staged} onReorder={setStaged} className="list list-none">
@@ -316,6 +304,13 @@ export default function Organize() {
               );
             })}
           </Reorder.Group>
+          <button
+            type="button" onClick={browseStagedItems} disabled={!isElectron}
+            className="w-full h-11 rounded-lg border border-dashed border-border text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid="organize-add-more"
+          >
+            <Plus className="w-4 h-4" aria-hidden="true" /> {t('organize.addMore')}
+          </button>
         </section>
       )}
 

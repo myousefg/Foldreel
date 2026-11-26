@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "VEZÉRLŐPULT",
+    "library": "Könyvtár",
     "history": "ELŐZMÉNYEK",
     "sites": "OLDALAK",
     "settings": "BEÁLLÍTÁSOK",

@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "OVERSIKT",
+    "library": "Bibliotek",
     "history": "HISTORIKK",
     "sites": "NETTSTEDER",
     "settings": "INNSTILLINGER",

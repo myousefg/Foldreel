@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "TYÖPÖYTÄ",
+    "library": "Kirjasto",
     "history": "HISTORIA",
     "sites": "SIVUSTOT",
     "settings": "ASETUKSET",

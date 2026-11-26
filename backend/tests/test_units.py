@@ -265,3 +265,28 @@ def test_image_thumb_honours_size_and_caches_each_rendition(server, tmp_path):
         assert max(b.size) == 1080
         assert b.size[0] / b.size[1] == pytest.approx(1.5, abs=0.01)  # proportions kept
     assert server._image_thumb(src, 1080) == large  # second call is served from the cache
+
+
+def _out_template(argv):
+    return argv[argv.index("-o") + 1] if "-o" in argv else None
+
+
+def test_direct_stream_links_get_their_own_file_name(server):
+    a = server.build_ytdlp_argv("https://cdn.test/s/aaa/720p/index.m3u8", {}, None, "p")
+    b = server.build_ytdlp_argv("https://cdn.test/s/bbb/720p/index.m3u8", {}, None, "p")
+    assert _out_template(a) and _out_template(a) != _out_template(b), "two index.m3u8 links must not share a name"
+    assert "--force-overwrites" in a, "running a link again replaces the file instead of keeping an old placeholder"
+
+
+def test_the_referer_is_part_of_the_file_name(server):
+    url = "https://cdn.test/s/aaa/720p/index.m3u8"
+    plain = server.build_ytdlp_argv(url, {}, None, "p")
+    with_ref = server.build_ytdlp_argv(url, {}, {"referer": "https://page.test/"}, "p")
+    assert _out_template(plain) != _out_template(with_ref), "a retry with a referer must not reuse the placeholder"
+    assert ["--referer", "https://page.test/"] == with_ref[with_ref.index("--referer"):with_ref.index("--referer") + 2]
+
+
+def test_youtube_keeps_its_own_naming(server):
+    argv = server.build_ytdlp_argv("https://www.youtube.com/watch?v=abc", {}, None, "p")
+    assert _out_template(argv) is None and "--force-overwrites" not in argv
+

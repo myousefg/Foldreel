@@ -161,6 +161,15 @@ export default function Settings() {
               </SelectContent>
             </Select>
           </Row>
+          <Row title={t('settings.deleteMode')} desc={t('settings.deleteModeDesc')}>
+            <Select value={s.delete_mode || 'recycle'} onValueChange={v => update({ delete_mode: v })}>
+              <SelectTrigger className="w-56" data-testid="delete-mode"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recycle">{t('settings.deleteRecycle')}</SelectItem>
+                <SelectItem value="permanent">{t('settings.deletePermanent')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </Row>
           <Row title={t('settings.clearCache')} desc={t('settings.clearCacheDesc')}>
             <Button variant="outline" size="sm" onClick={clearCache} disabled={cacheClearing}>
               {cacheClearing ? <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5 me-1.5" />}

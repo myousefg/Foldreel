@@ -34,7 +34,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import logging
 import uvicorn
@@ -148,7 +148,7 @@ DEFAULT_OUTPUT_DIR = (
     os.environ.get("FOLDREEL_DEFAULT_OUTPUT")
     or str(Path.home() / "Downloads" / "Foldreel")
 )
-APP_VERSION = "1.1.0"                                # single source at runtime
+APP_VERSION = "1.1.1"                                # single source at runtime
 # Set by the Electron shell when running as the Microsoft Store package. A Store app is
 # updated by the Store, and must not download and run replacement executables itself.
 IS_STORE = os.environ.get("FOLDREEL_STORE") == "1"
@@ -473,6 +473,32 @@ CREATE TABLE IF NOT EXISTS organize_log (
     undone        INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS lib_files (
+    path     TEXT PRIMARY KEY,
+    folder   TEXT NOT NULL DEFAULT '',
+    name     TEXT NOT NULL,
+    ext      TEXT DEFAULT '',
+    kind     TEXT NOT NULL,
+    size     INTEGER DEFAULT 0,
+    mtime    REAL DEFAULT 0,
+    name_key TEXT DEFAULT '',
+    hay      TEXT DEFAULT '',
+    site     TEXT DEFAULT '',
+    creator  TEXT DEFAULT '',
+    series   TEXT DEFAULT '',
+    meta_src TEXT DEFAULT '',
+    qhash    TEXT DEFAULT '',
+    fhash    TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS lib_dirs  (rel TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS lib_favs  (path TEXT PRIMARY KEY, added_at TEXT);
+CREATE TABLE IF NOT EXISTS lib_tags  (path TEXT NOT NULL, tag TEXT NOT NULL COLLATE NOCASE, PRIMARY KEY (path, tag));
+CREATE TABLE IF NOT EXISTS lib_meta  (path TEXT PRIMARY KEY, site TEXT DEFAULT '', creator TEXT DEFAULT '', series TEXT DEFAULT '');
+CREATE INDEX IF NOT EXISTS idx_lib_folder ON lib_files(folder);
+CREATE INDEX IF NOT EXISTS idx_lib_mtime  ON lib_files(mtime);
+CREATE INDEX IF NOT EXISTS idx_lib_size   ON lib_files(size);
+CREATE INDEX IF NOT EXISTS idx_lib_tags   ON lib_tags(tag);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_status  ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at);
 CREATE INDEX IF NOT EXISTS idx_watches_enabled ON watches(enabled);
@@ -493,6 +519,7 @@ CREATE INDEX IF NOT EXISTS idx_organize_log_organized ON organize_log(organized_
             ("settings", "presets", "TEXT DEFAULT '[]'"),
             ("settings", "default_photo_format", "TEXT DEFAULT 'keep'"),
             ("settings", "default_video_format", "TEXT DEFAULT 'keep'"),
+            ("settings", "delete_mode", "TEXT DEFAULT 'recycle'"),
             ("jobs", "hint", "TEXT DEFAULT ''"),
             ("jobs", "files_json", "TEXT DEFAULT '[]'"),
             ("jobs", "watch_id", "TEXT DEFAULT ''"),
@@ -943,6 +970,18 @@ def build_ytdlp_argv(url: str, settings: dict, options: Optional[dict], print_to
         fmt_sel = f"bv*[height<={h}]+ba/b[height<={h}]" if h else "bv*+ba/b"
         argv += ["-f", fmt_sel]
 
+    # A direct stream link names itself after the playlist file, so every
+    # ".../720p/index.m3u8" is called "index" and would overwrite, or be
+    # mistaken for, the last one. A short hash of the link and its referer
+    # keeps each video's file its own, and a retry with the right referer does
+    # not reuse the placeholder a host served without it. Running the same
+    # link again replaces the file rather than silently keeping the old one.
+    # YouTube titles and ids are already unique.
+    if not _is_youtube_url(url):
+        key = url + "|" + str(options.get("referer") or "").strip()
+        tag = hashlib.sha1(key.encode("utf-8", "replace")).hexdigest()[:8]
+        argv += ["-o", f"%(title).100B [{tag}].%(ext)s", "--force-overwrites"]
+
     if settings.get("proxy"):
         argv += ["--proxy", str(settings["proxy"]).strip()]
     rate_limit = str(settings.get("rate_limit") or "").strip()
@@ -1390,20 +1429,19 @@ class JobManager:
                         hint = "auth"
 
         # No extractor recognized this URL at all (not an auth/rate-limit
-        # problem - those already claimed `hint` above). One automatic retry
-        # through gallery-dl's own bundled "ytdl:" extractor before giving up
-        # - it hands off to yt-dlp, which recognizes far more sites and can
-        # reconstruct an HLS/DASH stream a plain page scrape never finds.
-        # `not fallback` stops this from ever looping: a URL that still fails
-        # on the second pass gets a real error instead of retrying forever.
+        # problem - those already claimed `hint` above). Hand it to yt-dlp
+        # directly: it recognizes far more sites and can reconstruct an
+        # HLS/DASH stream a plain page scrape never finds. This goes through
+        # our own yt-dlp runner rather than gallery-dl's "ytdl:" wrapper, whose
+        # shared archive and "{extractor}-{id}" names treated every
+        # ".../index.m3u8" as the same file. `not fallback` is kept so a URL can
+        # never bounce between the two runners.
         if (not fallback and status == "error" and counts["files_ok"] == 0
                 and not hint and _NO_EXTRACTOR.search(blob or tail)):
             log.info("No gallery-dl extractor for %s - retrying via yt-dlp", url)
-            fallback_url = "ytdl:" + url
-            db_run("UPDATE jobs SET url=?, current_file=? WHERE id=?",
-                   (fallback_url, "Retrying with yt-dlp...", job_id))
+            db_run("UPDATE jobs SET current_file=? WHERE id=?", ("Retrying with yt-dlp...", job_id))
             await ws_manager.broadcast({"type": "job.update", "job": _job_public(_job_row(job_id))})
-            return await self._run(job_id, fallback=True)
+            return await self._run_ytdlp(job_id, job_opts, dest, log_path)
 
         # Narrow dest_dir from the base output folder to the actual folder(s)
         # gallery-dl wrote into, so "Open folder" lands somewhere useful.
@@ -1436,6 +1474,17 @@ class JobManager:
                     pass
         await _apply_default_photo_format(written_files, settings)
         await _apply_default_video_format(written_files, settings)
+        # Creator and series come from these sidecars; keep them in the library
+        # index before they are deleted, so the Library can group by them later.
+        final_by_source = dict(zip(sidecar_sources, written_files))
+        for raw in sidecar_sources:
+            try:
+                got = _lib_read_sidecar(raw)
+                if got:
+                    _lib_meta_put(final_by_source.get(raw, raw), *got)
+            except Exception:
+                pass
+        _lib_state["dirty"] = True
         if not int(settings.get("write_metadata", 0)):
             for raw in sidecar_sources:
                 try:
@@ -2362,6 +2411,7 @@ class SettingsIn(BaseModel):
     theme: Optional[str] = None
     language: Optional[str] = None
     autostart: Optional[bool] = None
+    delete_mode: Optional[str] = None  # recycle | permanent
 
 
 class PreviewIn(BaseModel):
@@ -2419,6 +2469,7 @@ class CookieImportIn(BaseModel):
 async def lifespan(app: FastAPI):
     init_db()
     _cleanup_stale_managed_tools()
+    threading.Thread(target=_library_sync, name="library-scan", daemon=True).start()
     await manager.start()
     asyncio.create_task(_watch_loop())
     log.info("Foldreel backend ready on :%d - gallery-dl: %s", PORT, gdl_bin())
@@ -2850,13 +2901,15 @@ async def write_settings(body: SettingsIn):
     for k in ("skip_existing", "write_metadata", "notifications_enabled", "autostart"):
         if k in patch:
             patch[k] = 1 if patch[k] else 0
+    if "delete_mode" in patch and patch["delete_mode"] not in ("recycle", "permanent"):
+        raise HTTPException(400, "delete_mode must be recycle or permanent")
     merged = {**cur, **patch, "updated_at": _now()}
     cols = [
         "output_dir", "filename_format", "folder_structure", "folder_custom", "default_range", "max_concurrent",
         "rate_limit", "proxy", "sleep_request", "retries", "skip_existing", "write_metadata",
         "default_photo_format", "default_video_format",
         "notifications_enabled",
-        "cookies_mode", "cookies_browser", "cookies_file", "theme", "language", "autostart", "updated_at",
+        "cookies_mode", "cookies_browser", "cookies_file", "theme", "language", "autostart", "delete_mode", "updated_at",
     ]
     db_run(
         f"UPDATE settings SET {', '.join(f'{c}=?' for c in cols)} WHERE id='singleton'",
@@ -3077,6 +3130,43 @@ def _under_output(p: Path) -> bool:
     return False
 
 
+def _resolve_recorded_file(p: Path) -> List[Path]:
+    """The file(s) on disk that a recorded download path stands for.
+
+    The path a downloader prints is not always the final name: yt-dlp-backed
+    extractors can add a format tag before the extension, and a post-download
+    conversion changes the extension. When the recorded name is gone, fall
+    back to the media files beside it that start with the same name."""
+    try:
+        if p.is_file():
+            return [p]
+        parent = p.parent
+        if not parent.is_dir():
+            return []
+        stem = p.stem
+        same = [q for q in parent.iterdir()
+                if q.name.startswith(stem + ".") and q.suffix.lower() in (_IMG_EXT | _VID_EXT) and q.is_file()]
+    except OSError:
+        return []
+    # Prefer the file with the recorded extension, then the newest.
+    same.sort(key=lambda q: (q.suffix.lower() != p.suffix.lower(), -q.stat().st_mtime))
+    return same[:1]
+
+
+def _scan_media(folder: Path, cap: int = 300) -> List[Path]:
+    found: List[Path] = []
+    try:
+        for q in folder.rglob("*"):
+            if q.suffix.lower() in (_IMG_EXT | _VID_EXT) and q.is_file():
+                found.append(q)
+                if len(found) >= cap * 4:
+                    break
+    except OSError:
+        pass
+    found.sort(key=lambda q: q.stat().st_mtime, reverse=True)
+    return found[:cap]
+
+
 @api.get("/jobs/{job_id}/files")
 def job_files(job_id: str, limit: int = Query(60, le=300)):
     row = _job_row(job_id)
@@ -3091,16 +3181,33 @@ def job_files(job_id: str, limit: int = Query(60, le=300)):
     except Exception:
         paths = []
 
-    out = []
+    resolved: List[Path] = []
+    seen = set()
     for raw in paths:
-        p = Path(raw)
+        for q in _resolve_recorded_file(Path(raw)):
+            if str(q) not in seen:
+                seen.add(str(q))
+                resolved.append(q)
+
+    # A re-check that found nothing new (every file skipped) records no files,
+    # yet its folder holds what the watch has collected. When the job has its
+    # own folder, show that instead of an empty panel.
+    if not resolved and int(row.get("files_skipped") or 0) > 0:
+        dest = Path((row.get("dest_dir") or "").strip() or ".")
+        try:
+            own_folder = dest.is_dir() and dest.resolve() not in _output_roots() and _under_output(dest)
+        except OSError:
+            own_folder = False
+        if own_folder:
+            resolved = _scan_media(dest)
+
+    out = []
+    for p in resolved:
         ext = p.suffix.lower()
         kind = "image" if ext in _IMG_EXT else ("video" if ext in _VID_EXT else None)
         if not kind or not _under_output(p):
             continue
         try:
-            if not p.is_file():
-                continue
             st = p.stat()
         except OSError:
             continue
@@ -3108,6 +3215,959 @@ def job_files(job_id: str, limit: int = Query(60, le=300)):
                     "size": st.st_size, "mtime": st.st_mtime})
     out.sort(key=lambda f: f["mtime"], reverse=True)
     return {"files": out[:limit], "count": len(out), "root": row.get("dest_dir") or ""}
+
+
+# ── Library: an index of the download folder ────────────────────────────────
+# The download folder is walked into a SQLite table (lib_files), so listing,
+# searching, sorting and grouping a very large library is a query, not a walk.
+# The index is kept fresh three ways: every file operation below updates it
+# directly, a background rescan runs while the Library page is open (and after
+# a download finishes), and "refresh" forces one. Favorites, tags and the
+# creator/series captured at download time live in their own tables, keyed by
+# path, and follow a file when the app moves or renames it.
+_LIB_SKIP_DIRS = {"thumbs", "$recycle.bin", "system volume information"}
+_LIB_RESCAN_AFTER = 10.0  # seconds between background rescans while the page is polling
+_lib_state: Dict = {"version": 0, "scanning": False, "scanned_at": 0.0, "root": "", "dirty": True}
+_lib_scan_lock = threading.Lock()
+
+
+def _library_root() -> Path:
+    return Path(_abs_output(get_settings().get("output_dir"))).resolve()
+
+
+def _lib_natural(name: str) -> str:
+    """Sort key where img2 comes before img10, like a file manager."""
+    return re.sub(r"\d+", lambda m: m.group().zfill(10), name.lower())
+
+
+def _lib_rel(root: str, folder: str) -> str:
+    rel = os.path.relpath(folder, root).replace(os.sep, "/")
+    return "" if rel == "." else rel
+
+
+def _lib_inside(root: str, p: str) -> bool:
+    rn = os.path.normcase(root).rstrip("\\/")
+    pn = os.path.normcase(os.path.normpath(p))
+    return pn == rn or pn.startswith(rn + os.sep)
+
+
+def _lib_confine(raw: str, *, allow_root: bool = False, root: Optional[str] = None) -> str:
+    """A client-supplied path, normalised, and proven to be inside the download folder.
+    Pass `root` when confining many paths, so the setting is read once."""
+    root = root or str(_library_root())
+    p = os.path.normpath(raw or "")
+    if not raw or not _lib_inside(root, p) or (not allow_root and os.path.normcase(p) == os.path.normcase(root)):
+        raise HTTPException(400, "Path is outside the download folder")
+    return p
+
+
+def _clean_rel(folder: str) -> str:
+    rel = (folder or "").replace("\\", "/").strip("/")
+    if ".." in rel.split("/"):
+        raise HTTPException(400, "Bad folder")
+    return rel
+
+
+_SERIES_TAIL = re.compile(r"[\s_.\-]*[\(\[]?\d+[\)\]]?$")
+
+
+def _lib_guess_series(stem: str) -> str:
+    """`Ubel (3)` and `Ubel_03` both belong to the series `Ubel`."""
+    base = _SERIES_TAIL.sub("", stem).strip(" _.-")
+    return base if len(base) >= 3 and base != stem else ""
+
+
+def _lib_meta_from_sidecar(d: dict) -> Tuple[str, str, str]:
+    def text(v) -> str:
+        if isinstance(v, str):
+            return v.strip()
+        if isinstance(v, dict):
+            for k in ("name", "username", "nick", "title"):
+                if isinstance(v.get(k), str) and v[k].strip():
+                    return v[k].strip()
+        return ""
+
+    def first(*keys: str) -> str:
+        for k in keys:
+            t = text(d.get(k))
+            if t:
+                return t
+        return ""
+
+    return (first("category"),
+            first("username", "user", "author", "uploader", "channel", "subreddit", "blog_name", "artist", "creator")[:80],
+            first("title", "album", "gallery", "series", "manga", "collection", "set", "board")[:100])
+
+
+def _lib_read_sidecar(media: str) -> Optional[Tuple[str, str, str]]:
+    try:
+        with open(media + ".json", "rb") as fh:
+            raw = fh.read(1_000_000)
+        d = json.loads(raw.decode("utf-8", "replace"))
+        return _lib_meta_from_sidecar(d) if isinstance(d, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _lib_meta_put(media: str, site: str, creator: str, series: str) -> None:
+    """Remember where a file came from. Sidecars are deleted after a download unless the
+    user keeps them, so the grouping data is captured here, before that happens."""
+    if not (site or creator or series):
+        return
+    p = os.path.normpath(media)
+    db_run("INSERT OR REPLACE INTO lib_meta (path, site, creator, series) VALUES (?,?,?,?)", (p, site, creator, series))
+    db_run("UPDATE lib_files SET site=?, creator=?, series=?, meta_src='job', hay=lower(name||' '||folder||' '||?||' '||?||' '||?) WHERE path=?",
+           (site, creator, series, site, creator, series, p))
+    _lib_state["dirty"] = True
+
+
+def _lib_walk(base: str, root: str) -> Tuple[List[tuple], List[str]]:
+    files: List[tuple] = []
+    dirs: List[str] = []
+    stack = [base]
+    while stack:
+        cur = stack.pop()
+        try:
+            entries = list(os.scandir(cur))
+        except OSError:
+            continue
+        names = {e.name for e in entries}
+        rel_cur = _lib_rel(root, cur)
+        for e in entries:
+            try:
+                if e.is_dir(follow_symlinks=False):
+                    if e.name.startswith(".") or e.name.lower() in _LIB_SKIP_DIRS:
+                        continue
+                    stack.append(e.path)
+                    dirs.append(_lib_rel(root, e.path))
+                    continue
+                ext = os.path.splitext(e.name)[1].lower()
+                kind = "image" if ext in _IMG_EXT else ("video" if ext in _VID_EXT else None)
+                if not kind:
+                    continue
+                st = e.stat()
+                files.append((os.path.normpath(e.path), rel_cur, e.name, ext, kind, st.st_size, st.st_mtime,
+                              (e.name + ".json") in names))
+            except OSError:
+                continue
+    return files, dirs
+
+
+def _lib_row(root: str, f: tuple, known: Optional[tuple]) -> tuple:
+    path, folder, name, ext, kind, size, mtime, has_sidecar = f
+    site = creator = series = ""
+    src = ""
+    if known:
+        (site, creator, series), src = known, "job"
+    elif has_sidecar:
+        got = _lib_read_sidecar(path)
+        if got and any(got):
+            (site, creator, series), src = got, "sidecar"
+    if not src:
+        parts = folder.split("/") if folder else []
+        site = parts[0] if parts else ""
+        creator = parts[1] if len(parts) > 1 else ""
+        series = _lib_guess_series(os.path.splitext(name)[0])
+        src = "folder"
+    hay = f"{name} {folder} {site} {creator} {series}".lower()
+    return (path, folder, name, ext, kind, size, mtime, _lib_natural(name), hay, site, creator, series, src)
+
+
+_LIB_INSERT = ("INSERT OR REPLACE INTO lib_files (path, folder, name, ext, kind, size, mtime, name_key, hay, "
+               "site, creator, series, meta_src) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+
+
+def _library_sync(sub: Optional[str] = None) -> bool:
+    """Bring the index in line with the disk, for the whole download folder or one
+    path inside it. Returns True when anything changed."""
+    with _lib_scan_lock:
+        _lib_state["scanning"] = True
+        try:
+            root = str(_library_root())
+            if not os.path.isdir(root):
+                return False  # a missing drive must not wipe favorites and tags
+            base = os.path.normpath(sub) if sub else root
+            is_file = os.path.isfile(base)
+            if is_file:
+                ext = os.path.splitext(base)[1].lower()
+                kind = "image" if ext in _IMG_EXT else ("video" if ext in _VID_EXT else None)
+                try:
+                    st = os.stat(base)
+                except OSError:
+                    kind = None
+                files = []
+                if kind:
+                    files.append((base, _lib_rel(root, os.path.dirname(base)), os.path.basename(base), ext, kind,
+                                  st.st_size, st.st_mtime, os.path.isfile(base + ".json")))
+                dirs: List[str] = []
+            elif os.path.isdir(base):
+                files, dirs = _lib_walk(base, root)
+            else:
+                files, dirs = [], []
+
+            prefix = base + os.sep
+            with _db_lock:
+                c = _conn()
+                try:
+                    if base == root:
+                        old_rows = c.execute("SELECT path, size, mtime FROM lib_files").fetchall()
+                    else:
+                        old_rows = c.execute("SELECT path, size, mtime FROM lib_files WHERE path = ? OR substr(path, 1, ?) = ?",
+                                             (base, len(prefix), prefix)).fetchall()
+                    known_meta = {r["path"]: (r["site"], r["creator"], r["series"])
+                                  for r in c.execute("SELECT path, site, creator, series FROM lib_meta")}
+                finally:
+                    c.close()
+            old = {r["path"]: (r["size"], r["mtime"]) for r in old_rows}
+            seen = set()
+            writes: List[tuple] = []
+            for f in files:
+                seen.add(f[0])
+                cur = old.get(f[0])
+                if cur is not None and cur[0] == f[5] and abs(cur[1] - f[6]) < 0.001:
+                    continue
+                writes.append(_lib_row(root, f, known_meta.get(f[0])))
+            gone = [p for p in old if p not in seen]
+
+            changed = bool(writes or gone)
+            with _db_lock:
+                c = _conn()
+                try:
+                    if writes:
+                        c.executemany(_LIB_INSERT, writes)
+                        # A file that changed on disk is a different file: its cached hashes are stale.
+                        c.executemany("UPDATE lib_files SET qhash='', fhash='' WHERE path=?",
+                                      [(w[0],) for w in writes if w[0] in old])
+                    for i in range(0, len(gone), 500):
+                        chunk = gone[i:i + 500]
+                        marks = ",".join("?" * len(chunk))
+                        for table in ("lib_files", "lib_favs", "lib_tags", "lib_meta"):
+                            c.execute(f"DELETE FROM {table} WHERE path IN ({marks})", chunk)
+                    if not is_file:
+                        rel_base = _lib_rel(root, base)
+                        if base == root:
+                            before = {r[0] for r in c.execute("SELECT rel FROM lib_dirs")}
+                            c.execute("DELETE FROM lib_dirs")
+                            new_dirs = set(dirs)
+                        else:
+                            before = {r[0] for r in c.execute("SELECT rel FROM lib_dirs WHERE rel = ? OR substr(rel, 1, ?) = ?",
+                                                              (rel_base, len(rel_base) + 1, rel_base + "/"))}
+                            c.execute("DELETE FROM lib_dirs WHERE rel = ? OR substr(rel, 1, ?) = ?",
+                                      (rel_base, len(rel_base) + 1, rel_base + "/"))
+                            new_dirs = set(dirs) | ({rel_base} if os.path.isdir(base) else set())
+                        c.executemany("INSERT OR IGNORE INTO lib_dirs (rel) VALUES (?)", [(d,) for d in new_dirs])
+                        changed = changed or before != new_dirs
+                    c.commit()
+                finally:
+                    c.close()
+            if changed:
+                _lib_state["version"] += 1
+            return changed
+        finally:
+            _lib_state.update(scanning=False, scanned_at=time.monotonic(), dirty=False, root=str(_library_root()))
+
+
+def _library_ensure() -> None:
+    """The first look at a download folder (or a changed one) scans before answering."""
+    if _lib_state["root"] != str(_library_root()) or not _lib_state["scanned_at"]:
+        _library_sync()
+
+
+def _library_kick() -> None:
+    """Rescan in the background when the index is stale. Cheap to call often."""
+    if _lib_state["scanning"]:
+        return
+    stale = time.monotonic() - _lib_state["scanned_at"] > _LIB_RESCAN_AFTER
+    if _lib_state["dirty"] or stale:
+        threading.Thread(target=_library_sync, name="library-scan", daemon=True).start()
+
+
+# ── queries ─────────────────────────────────────────────────────────────────
+_LIB_GROUPS = {
+    "date": "strftime('%Y-%m', f.mtime, 'unixepoch', 'localtime')",
+    "folder": "f.folder", "creator": "f.creator", "series": "f.series", "site": "f.site", "type": "f.kind",
+}
+_LIB_SORTS = {  # key -> (columns, default order)
+    "mtime": ("f.mtime", "desc"), "size": ("f.size", "desc"), "name": ("f.name_key", "asc"),
+    "type": ("f.ext, f.name_key", "asc"), "folder": ("f.folder, f.name_key", "asc"),
+}
+_LIB_SORT_ALIAS = {"newest": ("mtime", "desc"), "oldest": ("mtime", "asc")}
+
+
+def _lib_like(text: str) -> str:
+    return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def _lib_where(folder: str, direct: bool, kind: str, q: str, place: str, tag: str) -> Tuple[str, dict]:
+    w: List[str] = []
+    a: dict = {}
+    if folder:
+        a["f"] = folder
+        if direct:
+            w.append("f.folder = :f")
+        else:
+            w.append("(f.folder = :f OR substr(f.folder, 1, :n) = :p)")
+            a.update(p=folder + "/", n=len(folder) + 1)
+    elif direct:
+        w.append("f.folder = ''")
+    if kind in ("image", "video"):
+        w.append("f.kind = :k")
+        a["k"] = kind
+    needle = (q or "").strip().lower()
+    if needle:
+        w.append("(f.hay LIKE :q ESCAPE '\\' OR EXISTS (SELECT 1 FROM lib_tags tq WHERE tq.path = f.path AND tq.tag LIKE :q ESCAPE '\\'))")
+        a["q"] = _lib_like(needle)
+    if place == "favorites":
+        w.append("EXISTS (SELECT 1 FROM lib_favs v WHERE v.path = f.path)")
+    elif place == "recent":
+        w.append("f.mtime >= :since")
+        a["since"] = time.time() - 7 * 86400
+    if tag:
+        w.append("EXISTS (SELECT 1 FROM lib_tags tg WHERE tg.path = f.path AND tg.tag = :tag COLLATE NOCASE)")
+        a["tag"] = tag
+    return (" WHERE " + " AND ".join(w)) if w else "", a
+
+
+def _lib_order(sort: str, order: str, group: str) -> Tuple[str, str]:
+    """(group key expression, ORDER BY clause)."""
+    if sort in _LIB_SORT_ALIAS:
+        sort, order = _LIB_SORT_ALIAS[sort]
+    cols, default = _LIB_SORTS.get(sort, _LIB_SORTS["mtime"])
+    direction = "DESC" if (order or default).lower() == "desc" else "ASC"
+    ordered = ", ".join(f"{c.strip()} {direction}" for c in cols.split(","))
+    gk = _LIB_GROUPS.get(group, "''")
+    if group == "date":
+        head = "gk DESC, "
+    elif group in _LIB_GROUPS:
+        head = "(gk = ''), gk COLLATE NOCASE, "
+    else:
+        head = ""
+    return gk, f" ORDER BY {head}{ordered}, f.path"
+
+
+_LIB_COLS = ("f.path, f.name, f.kind, f.size, f.mtime, f.folder, f.ext, f.site, f.creator, f.series, "
+             "EXISTS (SELECT 1 FROM lib_favs v WHERE v.path = f.path) AS fav, "
+             "(SELECT group_concat(t.tag, char(31)) FROM lib_tags t WHERE t.path = f.path) AS tags")
+
+
+def _lib_item(r: dict) -> dict:
+    return {
+        "path": r["path"], "name": r["name"], "kind": r["kind"], "size": r["size"], "mtime": r["mtime"],
+        "folder": r["folder"], "ext": r["ext"], "site": r["site"], "creator": r["creator"], "series": r["series"],
+        "fav": bool(r["fav"]), "tags": sorted(r["tags"].split("\x1f"), key=str.lower) if r.get("tags") else [],
+        **({"g": r["gk"]} if r.get("gk") else {}),
+    }
+
+
+def _lib_select(folder, view, kind, q, place, tag, sort, order, group):
+    folder = _clean_rel(folder)
+    direct = view == "folders" and place == "all" and not (q or "").strip() and not tag
+    where, args = _lib_where(folder, direct, kind, q, place, tag)
+    gk, order_sql = _lib_order(sort, order, group if not direct else "none")
+    return folder, direct, where, args, gk, order_sql
+
+
+@api.get("/library")
+def library_list(
+    folder: str = "", view: str = "folders", kind: str = "all", sort: str = "mtime", order: str = "",
+    group: str = "none", q: str = "", place: str = "all", tag: str = "",
+    offset: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=2000), refresh: bool = False,
+):
+    if refresh:
+        _library_sync()
+    else:
+        _library_ensure()
+        _library_kick()
+    folder, direct, where, args, gk, order_sql = _lib_select(folder, view, kind, q, place, tag, sort, order, group)
+    root = str(_library_root())
+
+    # What the scope holds, by kind, ignoring the kind filter itself (for the filter chips).
+    base_where, base_args = _lib_where(folder, False, "all", q, place, tag)  # chips count the whole subtree
+    counts = {"image": 0, "video": 0}
+    scope_size = 0
+    for r in db_all(f"SELECT f.kind AS kind, COUNT(*) AS n, COALESCE(SUM(f.size), 0) AS s FROM lib_files f{base_where} GROUP BY f.kind", base_args):
+        counts[r["kind"]] = r["n"]
+        scope_size += r["s"]
+    # Under a search the folder-wide totals do not apply; the "scope" is the whole subtree.
+    whole = _lib_where(folder, False, "all", "", "all", "")
+    scope_total = db_one(f"SELECT COUNT(*) AS n, COALESCE(SUM(f.size), 0) AS s FROM lib_files f{whole[0]}", whole[1]) or {"n": 0, "s": 0}
+
+    total_row = db_one(f"SELECT COUNT(*) AS n, COALESCE(SUM(f.size), 0) AS s FROM lib_files f{where}", args) or {"n": 0, "s": 0}
+
+    groups: List[dict] = []
+    if gk != "''":
+        group_order = "gk DESC" if group == "date" else "(gk = '') , gk COLLATE NOCASE"
+        for r in db_all(f"SELECT {gk} AS gk, COUNT(*) AS n FROM lib_files f{where} GROUP BY gk ORDER BY {group_order}", args):
+            groups.append({"key": r["gk"], "count": r["n"]})
+
+    folders: List[dict] = []
+    if direct:
+        prefix = folder + "/" if folder else ""
+        kids: Dict[str, dict] = {}
+        for d in db_all("SELECT rel FROM lib_dirs"):
+            rel = d["rel"]
+            if rel.startswith(prefix) and rel != folder and "/" not in rel[len(prefix):]:
+                kids[rel] = {"name": rel[len(prefix):], "rel": rel, "count": 0, "size": 0, "cover": "", "cover_mtime": 0.0}
+        sub_where, sub_args = _lib_where(folder, False, kind, "", "all", "")
+        for r in db_all(
+            "SELECT folder, cnt, tot, path, mtime FROM ("
+            " SELECT f.folder AS folder, f.path AS path, f.mtime AS mtime,"
+            "  COUNT(*) OVER (PARTITION BY f.folder) AS cnt, SUM(f.size) OVER (PARTITION BY f.folder) AS tot,"
+            "  ROW_NUMBER() OVER (PARTITION BY f.folder ORDER BY f.mtime DESC) AS rn"
+            f" FROM lib_files f{sub_where}) WHERE rn = 1", sub_args,
+        ):
+            if r["folder"] == folder:
+                continue
+            child = prefix + r["folder"][len(prefix):].split("/", 1)[0]
+            k = kids.get(child)
+            if k is None:
+                continue
+            k["count"] += r["cnt"]
+            k["size"] += r["tot"]
+            if r["mtime"] > k["cover_mtime"]:
+                k["cover_mtime"], k["cover"] = r["mtime"], r["path"]
+        folders = sorted(kids.values(), key=lambda k: _lib_natural(k["name"]))
+        if kind != "all":
+            folders = [k for k in folders if k["count"]]
+        for k in folders:
+            k.pop("cover_mtime")
+            k["path"] = os.path.normpath(os.path.join(root, k["rel"]))
+
+    rows = db_all(
+        f"SELECT {_LIB_COLS}, {gk} AS gk FROM lib_files f{where}{order_sql} LIMIT :limit OFFSET :offset",
+        {**args, "limit": limit, "offset": offset},
+    )
+    return {
+        "root": root, "folder": folder, "folders": folders, "groups": groups, "version": _lib_state["version"],
+        "total": total_row["n"], "total_size": total_row["s"], "counts": counts, "scope_size": scope_total["s"],
+        "scope_count": scope_total["n"], "items": [_lib_item(r) for r in rows],
+    }
+
+
+@api.get("/library/paths")
+def library_paths(
+    folder: str = "", view: str = "folders", kind: str = "all", sort: str = "mtime", order: str = "",
+    group: str = "none", q: str = "", place: str = "all", tag: str = "",
+):
+    """Every path a listing holds, in its order, so Select all and Shift-select work past what is loaded."""
+    _library_ensure()
+    folder, direct, where, args, gk, order_sql = _lib_select(folder, view, kind, q, place, tag, sort, order, group)
+    rows = db_all(f"SELECT f.path AS path, {gk} AS gk FROM lib_files f{where}{order_sql} LIMIT 100000", args)
+    return {"paths": [r["path"] for r in rows]}
+
+
+@api.get("/library/status")
+def library_status():
+    """Polled by the page. Starts a background rescan when the index is stale and reports a
+    version that changes whenever the library does, so the page knows when to reload."""
+    _library_ensure()
+    _library_kick()
+    return {"version": _lib_state["version"], "scanning": _lib_state["scanning"]}
+
+
+@api.get("/library/tree")
+def library_tree():
+    _library_ensure()
+    counts = {r["folder"]: r["n"] for r in db_all("SELECT folder, COUNT(*) AS n FROM lib_files GROUP BY folder")}
+    dirs = [d["rel"] for d in db_all("SELECT rel FROM lib_dirs")]
+    for rel in counts:  # a folder the walk saw only through its files
+        if rel and rel not in dirs:
+            dirs.append(rel)
+    tags = db_all("SELECT MIN(tag) AS tag, COUNT(*) AS n FROM lib_tags GROUP BY lower(tag) ORDER BY lower(tag)")
+    fav = db_one("SELECT COUNT(*) AS n FROM lib_favs v JOIN lib_files f ON f.path = v.path") or {"n": 0}
+    recent = db_one("SELECT COUNT(*) AS n FROM lib_files WHERE mtime >= ?", (time.time() - 7 * 86400,)) or {"n": 0}
+    total = db_one("SELECT COUNT(*) AS n FROM lib_files") or {"n": 0}
+    return {
+        "root": str(_library_root()), "version": _lib_state["version"], "total": total["n"],
+        "favorites": fav["n"], "recent": recent["n"], "root_count": counts.get("", 0),
+        "dirs": [{"rel": d, "count": counts.get(d, 0)} for d in sorted(dirs, key=_lib_natural)],
+        "tags": [{"tag": t["tag"], "count": t["n"]} for t in tags],
+    }
+
+
+@api.get("/library/folders")
+def library_folders():
+    """Every folder under the download folder, for the Move dialog."""
+    _library_ensure()
+    rels = {d["rel"] for d in db_all("SELECT rel FROM lib_dirs")}
+    return {"root": str(_library_root()), "folders": sorted(rels, key=_lib_natural)}
+
+
+@api.get("/library/info")
+def library_info(path: str):
+    p = _lib_confine(path)
+    row = db_one(f"SELECT {_LIB_COLS} FROM lib_files f WHERE f.path = ?", (p,))
+    if not row:
+        raise HTTPException(404, "Not in the library")
+    info = _lib_item(row)
+    try:
+        info["ctime"] = os.stat(p).st_ctime
+    except OSError:
+        pass
+    if info["kind"] == "image":
+        try:
+            _ensure_heif_opener()
+            from PIL import Image
+            with Image.open(p) as im:
+                info["width"], info["height"] = im.size
+        except Exception:
+            pass
+    return info
+
+
+# ── changing things ─────────────────────────────────────────────────────────
+_BAD_NAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
+
+
+def _lib_good_name(name: str) -> str:
+    n = _BAD_NAME_CHARS.sub("", name or "").strip().rstrip(". ")
+    if not n or n in (".", "..") or n.split(".")[0].lower() in _RESERVED:
+        raise HTTPException(400, "That name can not be used")
+    return n[:200]
+
+
+def _unique_target(folder, name: str) -> Path:
+    folder = Path(folder)
+    target = folder / name
+    if not target.exists():
+        return target
+    stem, suffix = Path(name).stem, Path(name).suffix
+    n = 1
+    while True:
+        cand = folder / f"{stem} ({n}){suffix}"
+        if not cand.exists():
+            return cand
+        n += 1
+
+
+def _lib_remap_paths(old: str, new: str, is_dir: bool) -> None:
+    """After a file or folder moved, point everything that remembers its path at the new one."""
+    jobs = db_all("SELECT id, files_json, dest_dir FROM jobs WHERE (files_json IS NOT NULL AND files_json != '[]') OR dest_dir != ''")
+    oldn = os.path.normcase(old)
+
+    def swap(p: str) -> str:
+        pn = os.path.normcase(os.path.normpath(p)) if p else ""
+        if pn == oldn:
+            return new
+        if is_dir and p and pn.startswith(oldn + os.sep):
+            return new + os.path.normpath(p)[len(old):]
+        return p
+
+    for row in jobs:
+        try:
+            files = json.loads(row["files_json"] or "[]")
+        except Exception:
+            files = []
+        fixed = [swap(f) for f in files]
+        dest = swap(row["dest_dir"] or "")
+        if fixed != files or dest != (row["dest_dir"] or ""):
+            db_run("UPDATE jobs SET files_json=?, dest_dir=? WHERE id=?", (json.dumps(fixed), dest, row["id"]))
+
+    with _db_lock:
+        c = _conn()
+        try:
+            for table in ("lib_favs", "lib_tags", "lib_meta"):
+                if is_dir:
+                    c.execute(f"UPDATE {table} SET path = ? || substr(path, ?) WHERE substr(path, 1, ?) = ?",
+                              (new, len(old) + 1, len(old) + 1, old + os.sep))
+                c.execute(f"UPDATE OR REPLACE {table} SET path = ? WHERE path = ?", (new, old))
+            c.commit()
+        finally:
+            c.close()
+
+
+def _lib_move_one(src: str, dst: str) -> None:
+    """Move a file or folder to an exact target, taking its metadata sidecar and everything
+    the app remembers about it along."""
+    root = str(_library_root())
+    is_dir = os.path.isdir(src)
+    if os.path.normcase(src) != os.path.normcase(dst) and os.path.exists(dst):
+        raise FileExistsError(os.path.basename(dst))
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.move(src, dst)
+    if not is_dir and os.path.isfile(src + ".json"):
+        shutil.move(src + ".json", dst + ".json")
+    _lib_remap_paths(src, dst, is_dir)
+    # Forget the old location, learn the new one.
+    db_run("DELETE FROM lib_files WHERE path = ? OR substr(path, 1, ?) = ?", (src, len(src) + 1, src + os.sep))
+    if is_dir:
+        rel = _lib_rel(root, src)
+        db_run("DELETE FROM lib_dirs WHERE rel = ? OR substr(rel, 1, ?) = ?", (rel, len(rel) + 1, rel + "/"))
+    _library_sync(dst)
+
+
+class LibraryPasteIn(BaseModel):
+    paths: List[str]
+    dest: str = ""         # folder under the download folder; "" is the folder itself
+    new_folder: str = ""   # optional folder to create inside dest
+    op: str = "move"       # move | copy
+
+
+def _chunks(items: list, n: int = 500):
+    for i in range(0, len(items), n):
+        yield items[i:i + n]
+
+
+def _lib_dest_dir(dest: str, new_folder: str) -> str:
+    root = str(_library_root())
+    rel = _clean_rel(dest)
+    d = os.path.normpath(os.path.join(root, rel)) if rel else root
+    if not _lib_inside(root, d):
+        raise HTTPException(400, "Folder is outside the download folder")
+    name = _BAD_NAME_CHARS.sub("", new_folder or "").strip().strip(".")
+    if name:
+        d = os.path.join(d, name)
+    try:
+        os.makedirs(d, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(400, f"Could not create the folder: {e}")
+    return d
+
+
+def _lib_paste(body: LibraryPasteIn) -> dict:
+    dest_dir = _lib_dest_dir(body.dest, body.new_folder)
+    root = str(_library_root())
+    copy = body.op == "copy"
+    moved: List[dict] = []
+    errors: List[str] = []
+    for raw in body.paths:
+        try:
+            src = _lib_confine(raw, root=root)
+            if not os.path.exists(src):
+                raise FileNotFoundError(raw)
+        except (HTTPException, OSError):
+            errors.append(f"{os.path.basename(raw)}: not in the download folder")
+            continue
+        if os.path.isdir(src) and _lib_inside(src, dest_dir):
+            errors.append(f"{os.path.basename(src)}: can not go inside itself")
+            continue
+        if not copy and os.path.normcase(os.path.dirname(src)) == os.path.normcase(dest_dir):
+            continue
+        target = str(_unique_target(dest_dir, os.path.basename(src)))
+        try:
+            if copy:
+                if os.path.isdir(src):
+                    shutil.copytree(src, target)
+                else:
+                    shutil.copy2(src, target)
+                    if os.path.isfile(src + ".json"):
+                        shutil.copy2(src + ".json", target + ".json")
+                _library_sync(target)
+            else:
+                _lib_move_one(src, target)
+        except OSError as e:
+            errors.append(f"{os.path.basename(src)}: {e}")
+            continue
+        moved.append({"from": src, "to": target})
+    if moved:
+        _library_sync(dest_dir)
+    return {"moved": moved, "errors": errors, "dest": dest_dir}
+
+
+@api.post("/library/paste")
+def library_paste(body: LibraryPasteIn):
+    return _lib_paste(body)
+
+
+@api.post("/library/move")
+def library_move(body: LibraryPasteIn):
+    body.op = "move"
+    return _lib_paste(body)
+
+
+class LibraryRenameIn(BaseModel):
+    path: str
+    name: str
+
+
+@api.post("/library/rename")
+def library_rename(body: LibraryRenameIn):
+    src = _lib_confine(body.path)
+    if not os.path.exists(src):
+        raise HTTPException(404, "Not found")
+    name = _lib_good_name(body.name)
+    dst = os.path.join(os.path.dirname(src), name)
+    same_but_case = os.path.normcase(src) == os.path.normcase(dst) and src != dst
+    if not same_but_case and os.path.exists(dst):
+        raise HTTPException(409, "Something with that name is already here")
+    try:
+        _lib_move_one(src, dst)
+    except OSError as e:
+        raise HTTPException(400, str(e))
+    return {"from": src, "to": dst, "name": name}
+
+
+class LibraryRelocateIn(BaseModel):
+    items: List[dict]  # [{from, to}]
+
+
+@api.post("/library/relocate")
+def library_relocate(body: LibraryRelocateIn):
+    """Put things back at exact paths. This is what Undo calls."""
+    done: List[dict] = []
+    errors: List[str] = []
+    for it in body.items:
+        try:
+            src, dst = _lib_confine(str(it.get("from", ""))), _lib_confine(str(it.get("to", "")))  # a handful at most
+            _lib_move_one(src, dst)
+            done.append({"from": src, "to": dst})
+        except (HTTPException, OSError) as e:
+            errors.append(f"{os.path.basename(str(it.get('from', '')))}: {getattr(e, 'detail', e)}")
+    return {"moved": done, "errors": errors}
+
+
+class LibraryMkdirIn(BaseModel):
+    parent: str = ""
+    name: str = ""
+
+
+@api.post("/library/mkdir")
+def library_mkdir(body: LibraryMkdirIn):
+    root = str(_library_root())
+    rel = _clean_rel(body.parent)
+    parent = os.path.normpath(os.path.join(root, rel)) if rel else root
+    if not _lib_inside(root, parent):
+        raise HTTPException(400, "Folder is outside the download folder")
+    name = _lib_good_name(body.name) if body.name.strip() else "New folder"
+    target = str(_unique_target(parent, name))
+    try:
+        os.makedirs(target)
+    except OSError as e:
+        raise HTTPException(400, str(e))
+    _library_sync(target)
+    return {"path": target, "rel": _lib_rel(root, target), "name": os.path.basename(target)}
+
+
+# Moving things to the Recycle Bin. On Windows that is the shell's own delete-with-undo,
+# so it appears in the real Recycle Bin and can be restored from there.
+def _recycle(paths: List[str]) -> None:
+    sandbox = os.environ.get("FOLDREEL_TRASH_DIR")
+    if sandbox:  # tests: never touch the real bin
+        os.makedirs(sandbox, exist_ok=True)
+        for p in paths:
+            shutil.move(p, str(_unique_target(sandbox, os.path.basename(p))))
+        return
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        class SHFILEOPSTRUCTW(ctypes.Structure):
+            _fields_ = [
+                ("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT), ("pFrom", ctypes.c_void_p), ("pTo", ctypes.c_void_p),
+                ("fFlags", ctypes.c_ushort), ("fAnyOperationsAborted", wintypes.BOOL),
+                ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", ctypes.c_void_p),
+            ]
+
+        too_long = [p for p in paths if len(p) >= 255]
+        if too_long:  # the shell would delete these for good instead of recycling them
+            raise OSError("The path is too long for the Recycle Bin")
+        buf = ctypes.create_unicode_buffer("\0".join(paths) + "\0\0")
+        op = SHFILEOPSTRUCTW()
+        op.wFunc = 3  # FO_DELETE
+        op.pFrom = ctypes.cast(buf, ctypes.c_void_p)
+        op.fFlags = 0x0040 | 0x0010 | 0x0004 | 0x0400  # ALLOWUNDO | NOCONFIRMATION | SILENT | NOERRORUI
+        rc = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+        if rc != 0 or op.fAnyOperationsAborted:
+            raise OSError(f"Could not move to the Recycle Bin (code {rc})")
+        return
+    trash = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "Trash"
+    (trash / "files").mkdir(parents=True, exist_ok=True)
+    (trash / "info").mkdir(parents=True, exist_ok=True)
+    for p in paths:
+        target = _unique_target(trash / "files", os.path.basename(p))
+        (trash / "info" / (target.name + ".trashinfo")).write_text(
+            f"[Trash Info]\nPath={p}\nDeletionDate={datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}\n", encoding="utf-8")
+        shutil.move(p, str(target))
+
+
+class LibraryDeleteIn(BaseModel):
+    paths: List[str]
+    mode: str = "recycle"  # recycle | permanent
+
+
+@api.post("/library/delete")
+def library_delete(body: LibraryDeleteIn):
+    permanent = body.mode == "permanent"
+    root = str(_library_root())
+    targets: List[str] = []
+    errors: List[str] = []
+    for raw in body.paths:
+        try:
+            p = _lib_confine(raw, root=root)
+        except HTTPException:
+            errors.append(f"{os.path.basename(raw)}: not in the download folder")
+            continue
+        if not os.path.exists(p):
+            errors.append(f"{os.path.basename(p)}: already gone")
+            continue
+        targets.append(p)
+    # A folder and something inside it are one delete.
+    targets = [p for p in targets if not any(q != p and _lib_inside(q, p) for q in targets)]
+    deleted: List[str] = []
+    for p in targets:
+        group = [p] + ([p + ".json"] if os.path.isfile(p) and os.path.isfile(p + ".json") else [])
+        try:
+            if permanent:
+                for g in group:
+                    shutil.rmtree(g) if os.path.isdir(g) else os.remove(g)
+            else:
+                _recycle(group)
+        except OSError as e:
+            errors.append(f"{os.path.basename(p)}: {e}")
+            continue
+        deleted.append(p)
+        rel = _lib_rel(root, p)
+        with _db_lock:
+            c = _conn()
+            try:
+                for table in ("lib_files", "lib_favs", "lib_tags", "lib_meta"):
+                    c.execute(f"DELETE FROM {table} WHERE path = ? OR substr(path, 1, ?) = ?", (p, len(p) + 1, p + os.sep))
+                c.execute("DELETE FROM lib_dirs WHERE rel = ? OR substr(rel, 1, ?) = ?", (rel, len(rel) + 1, rel + "/"))
+                c.commit()
+            finally:
+                c.close()
+    if deleted:
+        _lib_state["version"] += 1
+    return {"deleted": deleted, "errors": errors, "mode": "permanent" if permanent else "recycle"}
+
+
+class LibraryFavIn(BaseModel):
+    paths: List[str]
+    value: bool = True
+
+
+@api.post("/library/favorite")
+def library_favorite(body: LibraryFavIn):
+    root = str(_library_root())
+    paths = [_lib_confine(p, root=root) for p in body.paths]
+    with _db_lock:
+        c = _conn()
+        try:
+            known = {r["path"] for chunk in _chunks(paths) for r in c.execute(
+                f"SELECT path FROM lib_files WHERE path IN ({','.join('?' * len(chunk))})", chunk)}
+            for p in paths:
+                if p not in known:
+                    continue
+                if body.value:
+                    c.execute("INSERT OR IGNORE INTO lib_favs (path, added_at) VALUES (?,?)", (p, _now()))
+                else:
+                    c.execute("DELETE FROM lib_favs WHERE path = ?", (p,))
+            c.commit()
+        finally:
+            c.close()
+    _lib_state["version"] += 1
+    return {"count": len(paths)}
+
+
+class LibraryTagsIn(BaseModel):
+    paths: List[str]
+    add: List[str] = []
+    remove: List[str] = []
+
+
+def _lib_tag(t: str) -> str:
+    return re.sub(r"[\x00-\x1f]", "", t or "").strip()[:40]
+
+
+@api.post("/library/tags")
+def library_tags(body: LibraryTagsIn):
+    root = str(_library_root())
+    paths = [_lib_confine(p, root=root) for p in body.paths]
+    add = [t for t in dict.fromkeys(_lib_tag(t) for t in body.add) if t]
+    remove = [t for t in dict.fromkeys(_lib_tag(t) for t in body.remove) if t]
+    with _db_lock:
+        c = _conn()
+        try:
+            known = {r["path"] for chunk in _chunks(paths) for r in c.execute(
+                f"SELECT path FROM lib_files WHERE path IN ({','.join('?' * len(chunk))})", chunk)}
+            for p in paths:
+                if p not in known:
+                    continue
+                for t in remove:
+                    c.execute("DELETE FROM lib_tags WHERE path = ? AND tag = ? COLLATE NOCASE", (p, t))
+                for t in add:
+                    c.execute("INSERT OR IGNORE INTO lib_tags (path, tag) VALUES (?,?)", (p, t))
+            c.commit()
+        finally:
+            c.close()
+    _lib_state["version"] += 1
+    return {"count": len(paths)}
+
+
+# ── duplicates ──────────────────────────────────────────────────────────────
+def _lib_hash(path: str, full: bool) -> str:
+    h = hashlib.sha1()
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            if full or size <= 262144:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+            else:  # the two ends and the length tell almost every pair of different files apart
+                h.update(fh.read(131072))
+                fh.seek(max(0, size - 131072))
+                h.update(fh.read(131072))
+                h.update(str(size).encode())
+    except OSError:
+        return ""
+    return h.hexdigest()
+
+
+@api.get("/library/duplicates")
+def library_duplicates(limit: int = Query(300, ge=1, le=2000)):
+    """Files whose contents are identical. Same size first, then a cheap hash of the ends,
+    then a full hash only for what still matches; every hash is cached in the index."""
+    _library_ensure()
+    rows = db_all(
+        "SELECT path, size, qhash, fhash FROM lib_files WHERE size > 0 AND size IN "
+        "(SELECT size FROM lib_files WHERE size > 0 GROUP BY size HAVING COUNT(*) > 1)")
+    by_size: Dict[int, List[dict]] = {}
+    for r in rows:
+        by_size.setdefault(r["size"], []).append(r)
+    groups: List[List[str]] = []
+    quick_writes: List[tuple] = []
+    full_writes: List[tuple] = []
+    for size, members in by_size.items():
+        quick: Dict[str, List[dict]] = {}
+        for m in members:
+            q = m["qhash"] or _lib_hash(m["path"], False)
+            if q and q != m["qhash"]:
+                quick_writes.append((q, m["path"]))
+            if q:
+                quick.setdefault(q, []).append(m)
+        for same in quick.values():
+            if len(same) < 2:
+                continue
+            full: Dict[str, List[str]] = {}
+            for m in same:
+                f = m["fhash"] or _lib_hash(m["path"], True)
+                if f and f != m["fhash"]:
+                    full_writes.append((f, m["path"]))
+                if f:
+                    full.setdefault(f, []).append(m["path"])
+            groups.extend(g for g in full.values() if len(g) > 1)
+    if quick_writes or full_writes:  # cache the hashes so the next look is instant
+        with _db_lock:
+            c = _conn()
+            try:
+                c.executemany("UPDATE lib_files SET qhash=? WHERE path=?", quick_writes)
+                c.executemany("UPDATE lib_files SET fhash=? WHERE path=?", full_writes)
+                c.commit()
+            finally:
+                c.close()
+    out = []
+    wasted = 0
+    groups.sort(key=len, reverse=True)
+    for g in groups[:max(limit * 2, 600)]:
+        items = db_all(f"SELECT {_LIB_COLS} FROM lib_files f WHERE f.path IN ({','.join('?' * len(g))}) ORDER BY f.mtime ASC, f.path", g)
+        if len(items) < 2:
+            continue
+        size = items[0]["size"]
+        wasted += size * (len(items) - 1)
+        out.append({"size": size, "files": [_lib_item(i) for i in items]})
+    out.sort(key=lambda x: x["size"] * (len(x["files"]) - 1), reverse=True)
+    return {"groups": out[:limit], "group_count": len(out), "wasted": wasted}
 
 
 def _ffmpeg_bin() -> Optional[str]:

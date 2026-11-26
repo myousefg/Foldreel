@@ -9,7 +9,7 @@ your favorite sites, convert or compress anything you drop in, batch-rename file
 into clean albums, and watch pages for new posts automatically. No command line, no config
 files, no juggling four different tools.
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)](https://github.com/myousefg/Foldreel/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.1.1-blue?style=flat-square)](https://github.com/myousefg/Foldreel/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/myousefg/Foldreel/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/myousefg/Foldreel/total?style=flat-square&label=downloads)](https://github.com/myousefg/Foldreel/releases)
@@ -46,7 +46,8 @@ Four tools in one app, sharing one queue, library, and set of settings:
 - **Full albums at full resolution.** Foldreel fetches the original files, not the compressed thumbnails a feed shows.
 - **Live queue.** Progress for each download, with a streaming log.
 - **Preview before you commit.** See what a link will download before it downloads anything.
-- **Library.** Every finished download, grouped by day, with full-size previews, one click to open the folder, and one click to download it again.
+- **Library.** Browse your download folder like a file manager: folders, five views, search, drag and drop, favorites, tags, and a duplicates finder. Delete goes to the Recycle Bin, or permanently if you choose.
+- **History.** Every finished download, grouped by day, with full-size previews, one click to open the folder, and one click to download it again.
 - **Built-in logins.** Cookies, username and password, or OAuth, saved per site. You set each up once.
 - **YouTube.** Pick a quality and format, audio-only included.
 - **Automatic GIFs.** A Twitter/X "GIF" is a video file in disguise. Foldreel turns it into a real `.gif`.
@@ -74,7 +75,7 @@ Foldreel never touches gallery-dl configuration or caches already on your machin
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/library.png" alt="Library with the preview panel open"><br><sub><b>Library.</b> Full-size previews of everything you downloaded.</sub></td>
+    <td width="50%"><img src="docs/screenshots/library.png" alt="History with the preview panel open"><br><sub><b>History.</b> Full-size previews of everything you downloaded.</sub></td>
     <td width="50%"><img src="docs/screenshots/organize.png" alt="Organize page showing files with large previews and their new names"><br><sub><b>Organize.</b> Bigger previews show which file gets which name.</sub></td>
   </tr>
   <tr>
@@ -157,6 +158,7 @@ The extension sends the page you are on to Foldreel, so you can skip copying the
 - Click the toolbar icon, or press **Alt+Shift+F**, to send the current page.
 - Right-click a link, image, or video and choose **Send to Foldreel**.
 - Hover an image or video to show a **Foldreel** button on it. Turn the button off for a single site from the popup, or everywhere from the extension's settings page.
+- The extension also blocks pop-ups and pop-unders, and hides invisible layers and links that sit over a page to catch your clicks. Turn it off for a single site from the popup, or everywhere from the settings page.
 - Choose **Add** in the popup to share your login for the current site. If Foldreel already has that site's cookies, the button reads **Replace**.
 
 The extension talks only to Foldreel on your own computer, at `127.0.0.1`. It reads cookies only when you press the cookie button. See [extension/README.md](extension/README.md) for details.

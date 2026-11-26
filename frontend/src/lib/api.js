@@ -36,6 +36,24 @@ export const jobsApi = {
   clearFinished: ()       => api.delete('/jobs').then(r => r.data),
 };
 
+export const libraryApi = {
+  list:        (params) => api.get('/library', { params }).then(r => r.data),
+  paths:       (params) => api.get('/library/paths', { params }).then(r => r.data.paths),
+  status:      ()       => api.get('/library/status').then(r => r.data),
+  tree:        ()       => api.get('/library/tree').then(r => r.data),
+  folders:     ()       => api.get('/library/folders').then(r => r.data),
+  info:        (path)   => api.get('/library/info', { params: { path } }).then(r => r.data),
+  paste:       (body)   => api.post('/library/paste', body).then(r => r.data),
+  move:        (body)   => api.post('/library/move', body).then(r => r.data),
+  rename:      (path, name) => api.post('/library/rename', { path, name }).then(r => r.data),
+  mkdir:       (parent, name) => api.post('/library/mkdir', { parent, name }).then(r => r.data),
+  remove:      (paths, mode)  => api.post('/library/delete', { paths, mode }).then(r => r.data),
+  relocate:    (items)  => api.post('/library/relocate', { items }).then(r => r.data),
+  favorite:    (paths, value) => api.post('/library/favorite', { paths, value }).then(r => r.data),
+  tags:        (paths, add = [], remove = []) => api.post('/library/tags', { paths, add, remove }).then(r => r.data),
+  duplicates:  ()       => api.get('/library/duplicates', { timeout: 0 }).then(r => r.data),
+};
+
 export const previewApi = {
   run: (url, options) => api.post('/preview', { url, options }).then(r => r.data),
 };

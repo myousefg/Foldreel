@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { ArrowDownToLine, Library, Settings, KeyRound, SlidersHorizontal, Bell, ArrowLeftRight, FolderTree } from 'lucide-react';
+import { ArrowDownToLine, History, Images, Settings, KeyRound, SlidersHorizontal, Bell, ArrowLeftRight, FolderTree } from 'lucide-react';
 import { useI18n } from '@/context/I18nProvider';
 import { useJobs } from '@/context/JobsProvider';
 import { sentenceCase } from '@/lib/utils';
@@ -47,7 +47,8 @@ export default function Sidebar() {
 
       <nav className="flex-1 px-2.5 space-y-0.5" aria-label={t('nav.mainNav')} data-testid="sidebar-nav">
         <NavItem to="/" end icon={ArrowDownToLine} label={label('nav.dashboard')} badge={badge} testId="nav-dashboard" />
-        <NavItem to="/history" icon={Library} label={label('nav.history')} testId="nav-history" />
+        <NavItem to="/library" icon={Images} label={label('nav.library')} testId="nav-library" />
+        <NavItem to="/history" icon={History} label={label('nav.history')} testId="nav-history" />
         <NavItem to="/watch" icon={Bell} label={label('nav.watch')} testId="nav-watch" />
         <div className="h-3" aria-hidden="true" />
         <NavItem to="/convert" icon={ArrowLeftRight} label={label('nav.convert')} testId="nav-convert" />

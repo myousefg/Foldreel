@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "TABLERO",
+    "library": "Biblioteca",
     "history": "HISTORIAL",
     "sites": "SITIOS",
     "settings": "CONFIGURACIÓN",

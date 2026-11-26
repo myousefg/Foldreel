@@ -14,6 +14,7 @@ import Dashboard from '@/pages/Dashboard';
 import Convert from '@/pages/Convert';
 import Organize from '@/pages/Organize';
 import History from '@/pages/History';
+import Library from '@/pages/Library';
 import Watch from '@/pages/Watch';
 import Sites from '@/pages/Sites';
 import Settings from '@/pages/Settings';
@@ -53,6 +54,7 @@ function RoutedShell() {
             <Route path="/"        element={<Dashboard />} />
             <Route path="/convert" element={<Convert />} />
             <Route path="/organize" element={<Organize />} />
+            <Route path="/library" element={<Library />} />
             <Route path="/history" element={<History />} />
             <Route path="/watch"   element={<Watch />} />
             <Route path="/sites"   element={<Sites />} />

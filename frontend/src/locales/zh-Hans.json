@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "仪表盘",
+    "library": "媒体库",
     "history": "历史记录",
     "sites": "站点",
     "settings": "设置",

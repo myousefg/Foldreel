@@ -47,5 +47,13 @@ export function useWatches() {
     refresh();
   }, [refresh]);
 
-  return { watches, refresh, add, update, remove, checkNow };
+  // Re-check every watch that is on. Returns how many were started.
+  const checkAll = useCallback(async (skipIds = []) => {
+    const due = watches.filter(w => w.enabled && !skipIds.includes(w.id));
+    const results = await Promise.allSettled(due.map(w => watchesApi.checkNow(w.id)));
+    refresh();
+    return { started: results.filter(r => r.status === 'fulfilled').length, failed: results.filter(r => r.status === 'rejected').length };
+  }, [watches, refresh]);
+
+  return { watches, refresh, add, update, remove, checkNow, checkAll };
 }

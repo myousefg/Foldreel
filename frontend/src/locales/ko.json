@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "대시보드",
+    "library": "라이브러리",
     "history": "기록",
     "sites": "사이트",
     "settings": "설정",

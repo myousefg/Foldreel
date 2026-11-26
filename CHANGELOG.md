@@ -3,6 +3,49 @@
 All notable changes to Foldreel are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.1.1] - 2026-11-26
+
+### Added
+- **Library**, a new page that works like a file manager for your download folder.
+  - Browse by folder with a folder tree on the left, or choose Everything and group by month, folder,
+    creator, series, site or type. Search, sort, and filter photos or videos.
+  - Five views: Details, Tiles, and Small, Medium and Large icons. Click a column heading in Details to sort.
+  - Select with a click, Ctrl or Shift, Ctrl+A, arrow keys, or by dragging a box over the pictures.
+  - Right-click for Open, Cut, Copy, Paste, Rename, Move to, Favorite, Tags, Convert, Organize, Copy path,
+    Properties and Delete. F2 renames in place, and Ctrl+Z undoes a move or rename.
+  - Drag pictures onto a folder to move them (hold Ctrl to copy), or onto Favorites or a tag.
+  - New folder, favorites, tags, and a details panel with a preview, size and dimensions.
+  - **Duplicates** finds identical files, and "Keep one of each" selects the extra copies.
+  - It refreshes by itself when a download finishes or you change files in Explorer, and stays fast with
+    tens of thousands of files.
+- **Delete** in the Library. By default it moves files to the Recycle Bin without asking. In Settings, Files you
+  can switch it to delete permanently, which asks first, like Windows. Shift+Delete always asks.
+- **Pop-up and hidden-link blocker** in the browser extension (version 1.1.1). It stops pop-up and pop-under
+  windows, and hides invisible layers and links that sit over a page to catch your clicks. On pages that already
+  tried a pop-up it also hides floating ad boxes. Switch it off everywhere in the extension's settings, or for one
+  site from the toolbar popup.
+- **Check all now** on the Watch page, and bigger Watch pictures that open at full size.
+- Convert shows files as a list, medium, or large pictures, like Organize.
+- A clear drop cue over the whole window while you drag files into Convert or Organize, and an
+  **Add more files** row under the list.
+- Stream links: the extension now spots HLS and DASH playlists (`.m3u8`, `.mpd`) that a page loads with script,
+  and sends them with the page they came from as the Referer. Hosts that answer a request without it with a
+  placeholder clip now return the real video.
+
+### Changed
+- The old **Library** page is now **History**.
+- Creator and series are remembered when a download finishes, even though the metadata files are deleted
+  afterwards, so the Library can group by them.
+
+### Fixed
+- Pasted stream links named `index` no longer overwrite or get skipped as "already downloaded"; each link
+  keeps its own file, and running a link again replaces it.
+- The History panel shows pictures again when a download's recorded file name differs from the one on disk,
+  and when a Watch re-check skipped everything. Its "+N" button counts what is really on disk, and a note says
+  how many files are no longer in the folder.
+- Extension: the floating download button now ignores clicks made by the page's own script, so a web page can no
+  longer start a download by clicking it.
+
 ## [1.1.0] - 2026-11-14
 
 ### Changed

@@ -1,13 +1,14 @@
 import { useId, useState } from 'react';
 import { toast } from 'sonner';
-import { Bell, Loader2 } from 'lucide-react';
+import { Bell, Loader2, RotateCcw } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import WatchSection from '@/components/WatchSection';
-import { PageSubtitle } from '@/components/PageHeader';
+import { PageActions, PageSubtitle } from '@/components/PageHeader';
+import { useJobs } from '@/context/JobsProvider';
 import { useI18n } from '@/context/I18nProvider';
 import { useWatches } from '@/lib/watches';
 
@@ -24,7 +25,9 @@ function isValidUrl(url) {
 
 export default function Watch() {
   const { t } = useI18n();
-  const { watches, add, update, remove, checkNow } = useWatches();
+  const { watches, add, update, remove, checkNow, checkAll } = useWatches();
+  const { active } = useJobs();
+  const [checkingAll, setCheckingAll] = useState(false);
   const [url, setUrl] = useState('');
   const [interval, setInterval_] = useState('60');
   const [busy, setBusy] = useState(false);
@@ -44,9 +47,28 @@ export default function Watch() {
     }
   };
 
+  const runningIds = active.filter(j => j.watch_id).map(j => j.watch_id);
+  const checkable = watches.filter(w => w.enabled && !runningIds.includes(w.id)).length;
+  const onCheckAll = async () => {
+    setCheckingAll(true);
+    try {
+      const { started, failed } = await checkAll(runningIds);
+      if (started) toast.success(t('watch.checkingAll', { count: started }));
+      if (failed) toast.error(t('watch.actionFailed'));
+    } finally {
+      setCheckingAll(false);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-12">
       <PageSubtitle>{t('watch.summary', { count: watches.length })}</PageSubtitle>
+      <PageActions>
+        <Button variant="outline" size="sm" className="h-8" onClick={onCheckAll} disabled={checkingAll || checkable === 0} data-testid="watch-check-all">
+          {checkingAll ? <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />}
+          {t('watch.checkAll')}
+        </Button>
+      </PageActions>
 
       <div className="flex items-center gap-2 flex-wrap rounded-xl border border-border bg-card p-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
         <label htmlFor={urlInputId} className="sr-only">{t('watch.add')}</label>

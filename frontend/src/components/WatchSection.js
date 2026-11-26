@@ -12,6 +12,7 @@ import { parseSource } from '@/lib/jobMeta';
 import { useJobs } from '@/context/JobsProvider';
 import { jobsApi, thumbUrl } from '@/lib/api';
 import { snappy } from '@/lib/motion';
+import MediaLightbox from '@/components/MediaLightbox';
 
 const INTERVALS = [15, 30, 60, 180, 360, 720, 1440];
 
@@ -24,20 +25,28 @@ function timeAgo(iso) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-// Same fallback-to-icon behavior as History's thumbnail grid.
-function Thumb({ f }) {
+// A thumbnail that opens the picture at full size.
+function Thumb({ f, onOpen }) {
   const [failed, setFailed] = useState(false);
   const Icon = f.kind === 'video' ? Film : ImageOff;
-  return failed ? (
-    <span className="w-full h-full flex items-center justify-center">
-      <Icon className="w-5 h-5 text-muted-foreground" />
-    </span>
-  ) : (
-    <img
-      src={thumbUrl(f.path)} alt={f.name} loading="lazy"
-      onError={() => setFailed(true)}
-      className="w-full h-full object-cover"
-    />
+  return (
+    <button
+      type="button" onClick={onOpen} title={f.name} aria-label={f.name}
+      className="relative block w-full aspect-square rounded-lg overflow-hidden border border-border bg-muted hover:ring-2 hover:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-shadow"
+    >
+      {failed ? (
+        <span className="w-full h-full flex items-center justify-center"><Icon className="w-5 h-5 text-muted-foreground" /></span>
+      ) : (
+        <img
+          src={thumbUrl(f.path, 640)} alt="" loading="lazy" draggable={false}
+          onError={() => setFailed(true)}
+          className="w-full h-full object-cover"
+        />
+      )}
+      {f.kind === 'video' && !failed && (
+        <span className="absolute end-1.5 bottom-1.5 rounded bg-black/60 text-white p-1" aria-hidden="true"><Film className="w-3 h-3" /></span>
+      )}
+    </button>
   );
 }
 
@@ -45,6 +54,7 @@ function WatchRow({ w, active, onUpdate, onRemove, onCheckNow }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState(null);
+  const [light, setLight] = useState(null);
   const panelId = useId();
   const canExpand = !!w.last_job_id && w.last_found > 0;
   const source = parseSource(w.url);
@@ -134,21 +144,20 @@ function WatchRow({ w, active, onUpdate, onRemove, onCheckNow }) {
             style={{ overflow: 'hidden' }}
           >
             <div className="px-3 pb-3 pt-1 border-t border-border bg-muted/20">
-              {files && files.length > 0 ? (
-                <div className="grid grid-cols-8 sm:grid-cols-10 gap-1.5 mt-2">
-                  {files.slice(0, 24).map(f => (
-                    <div key={f.path} className="relative aspect-square rounded overflow-hidden border border-border bg-background">
-                      <Thumb f={f} />
-                    </div>
-                  ))}
-                  {w.last_found > files.length && (
-                    <span className="aspect-square rounded border border-dashed border-border flex items-center justify-center text-[10px] text-muted-foreground">
-                      +{w.last_found - files.length}
+              {files === null && <p className="text-xs text-muted-foreground pt-2">{t('common.loading')}</p>}
+              {files && files.length === 0 && <p className="text-xs text-muted-foreground pt-2">{t('watch.filesGone')}</p>}
+              {files && files.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2 mt-2">
+                  {files.slice(0, 24).map((f, i) => <Thumb key={f.path} f={f} onOpen={() => setLight(i)} />)}
+                  {files.length > 24 && (
+                    <span className="aspect-square rounded-lg border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground tabular-nums">
+                      +{files.length - 24}
                     </span>
                   )}
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground pt-2">{t('common.loading')}</p>
+              )}
+              {light != null && files && (
+                <MediaLightbox files={files.slice(0, 24)} index={light} onIndex={setLight} onClose={() => setLight(null)} />
               )}
             </div>
           </motion.div>

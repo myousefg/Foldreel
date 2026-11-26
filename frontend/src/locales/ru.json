@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "ПАНЕЛЬ",
+    "library": "Библиотека",
     "history": "ИСТОРИЯ",
     "sites": "САЙТЫ",
     "settings": "НАСТРОЙКИ",

@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "แดชบอร์ด",
+    "library": "คลัง",
     "history": "ประวัติ",
     "sites": "เว็บไซต์",
     "settings": "การตั้งค่า",

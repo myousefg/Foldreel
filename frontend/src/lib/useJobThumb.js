@@ -9,7 +9,7 @@ const cache = new Map();
 // scrolls into view (a library can hold hundreds of jobs).
 export function useJobThumb(job) {
   const ref = useRef(null);
-  const wanted = job.status === 'done' && job.files_ok > 0;
+  const wanted = job.status === 'done' && (job.files_ok > 0 || job.files_skipped > 0);
   const [path, setPath] = useState(() => (cache.has(job.id) ? cache.get(job.id) : undefined));
 
   useEffect(() => {

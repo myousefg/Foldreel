@@ -1,6 +1,7 @@
 {
   "nav": {
     "dashboard": "DASHBOARD",
+    "library": "Bibliothek",
     "history": "VERLAUF",
     "sites": "SEITEN",
     "settings": "EINSTELLUNGEN",

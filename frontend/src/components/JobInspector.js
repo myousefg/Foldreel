@@ -70,6 +70,7 @@ export default function JobInspector({ job, onClose }) {
   const { env } = useSettings();
   const [log, setLog] = useState(null);
   const [files, setFiles] = useState(null);
+  const [found, setFound] = useState(0);
   const [showLog, setShowLog] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const panelRef = useRef(null);
@@ -81,15 +82,18 @@ export default function JobInspector({ job, onClose }) {
   const sharedDest = samePath(job.dest_dir, env?.output_dir) && !(job.files_ok > 0);
 
   useEffect(() => {
-    setLog(null); setFiles(null); setShowLog(false); setShowAll(false);
+    setLog(null); setFiles(null); setFound(0); setShowLog(false); setShowAll(false);
     let cancelled = false;
-    if (job.files_ok > 0) {
-      jobsApi.files(job.id).then((r) => { if (!cancelled) setFiles(r.files || []); }).catch(() => { if (!cancelled) setFiles([]); });
+    // A re-check that skipped everything still has files in its folder to show.
+    if (job.files_ok > 0 || job.files_skipped > 0) {
+      jobsApi.files(job.id, 300)
+        .then((r) => { if (!cancelled) { setFiles(r.files || []); setFound(r.count || 0); } })
+        .catch(() => { if (!cancelled) setFiles([]); });
     } else {
       setFiles([]);
     }
     return () => { cancelled = true; };
-  }, [job.id, job.files_ok]);
+  }, [job.id, job.files_ok, job.files_skipped]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -121,7 +125,9 @@ export default function JobInspector({ job, onClose }) {
   };
 
   const shown = files ? (showAll ? files : files.slice(0, 4)) : [];
-  const more = files ? Math.max(0, (job.files_ok || files.length) - shown.length) : 0;
+  // Count what is actually on disk, not what the job reported: files can be moved or deleted later.
+  const more = files && !showAll ? Math.max(0, files.length - shown.length) : 0;
+  const missing = files ? Math.max(0, (job.files_ok || 0) - found) : 0;
   const counts = [
     job.files_ok > 0 && fileCount(job.files_ok, t, lang),
     job.files_skipped > 0 && `${job.files_skipped} ${t('dashboard.skipped')}`,
@@ -158,6 +164,9 @@ export default function JobInspector({ job, onClose }) {
               >
                 +{more}
               </button>
+            )}
+            {missing > 0 && (
+              <p className="text-xs text-muted-foreground px-1">{t('history.filesMissing', { count: missing })}</p>
             )}
           </section>
         )}

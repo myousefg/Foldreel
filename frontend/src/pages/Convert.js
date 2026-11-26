@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
   ArrowRight, Check, FolderOpen, Image as ImageIcon, Loader2, Plus, Trash2, Video, X, ArrowLeftRight,
@@ -10,8 +10,11 @@ import {
 } from '@/components/ui/select';
 import { PageActions } from '@/components/PageHeader';
 import { StatusBadge } from '@/components/kit';
+import DropOverlay from '@/components/DropOverlay';
+import ViewSwitch, { VIEW_BOX, loadView, saveView } from '@/components/ViewSwitch';
 import { useI18n } from '@/context/I18nProvider';
 import { useConversions } from '@/lib/convert';
+import { handoff } from '@/lib/handoff';
 import { isElectron } from '@/lib/electron';
 import { sortPathsByName } from '@/lib/utils';
 import { organizeThumbUrl } from '@/lib/api';
@@ -88,27 +91,29 @@ function VideoTargetItems() {
   );
 }
 
-function Thumb({ path, kind, size = 40 }) {
+function Thumb({ path, kind, view }) {
   const [failed, setFailed] = useState(false);
   const FallbackIcon = kind === 'video' ? Video : ImageIcon;
+  const { box, fetch } = VIEW_BOX[view];
   return (
-    <span className="shrink-0 rounded-md bg-muted flex items-center justify-center overflow-hidden ring-1 ring-inset ring-border" style={{ width: size, height: size }}>
+    <span className="shrink-0 rounded-md bg-muted flex items-center justify-center overflow-hidden ring-1 ring-inset ring-border" style={{ width: view === 'list' ? 40 : box, height: view === 'list' ? 40 : box }}>
       {failed
         ? <FallbackIcon className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
-        : <img src={organizeThumbUrl(path)} alt="" loading="lazy" onError={() => setFailed(true)} className="w-full h-full object-cover" />}
+        : <img src={organizeThumbUrl(path, fetch)} alt="" loading="lazy" onError={() => setFailed(true)} className={`w-full h-full ${view === 'large' ? 'object-contain' : 'object-cover'}`} />}
     </span>
   );
 }
 
-function StagedRow({ item, onChangeTarget, onChangeField, onRemove }) {
+function StagedRow({ item, view, onChangeTarget, onChangeField, onRemove }) {
   const { t } = useI18n();
   const isVideo = item.kind === 'video';
   const isGif = item.target === 'gif';
   const isFrame = isVideo && FRAME_TARGETS.includes(item.target);
+  const indent = { paddingInlineStart: (view === 'list' ? 40 : VIEW_BOX[view].box) + 12 };
   return (
     <div className="px-3 py-2.5" data-testid="staged-row">
       <div className="flex items-center gap-3">
-        <Thumb path={item.path} kind={item.kind} />
+        <Thumb path={item.path} kind={item.kind} view={view} />
         <div className="min-w-0 flex-1">
           <p className="text-[13px] truncate" title={item.path}>{baseName(item.path)}</p>
           <p className="text-[11px] text-muted-foreground uppercase">{extOf(item.path)}</p>
@@ -127,7 +132,7 @@ function StagedRow({ item, onChangeTarget, onChangeField, onRemove }) {
         </Button>
       </div>
       {isFrame && (
-        <div className="flex items-center gap-2 ps-[52px] pt-2">
+        <div className="flex items-center gap-2 pt-2" style={indent}>
           <label htmlFor={`frame-at-${item.id}`} className="text-[11px] text-muted-foreground">{t('convert.frameAt')}</label>
           <Input
             id={`frame-at-${item.id}`} type="number" min="0" step="0.5" value={item.start ?? 0}
@@ -137,7 +142,7 @@ function StagedRow({ item, onChangeTarget, onChangeField, onRemove }) {
         </div>
       )}
       {isGif && (
-        <div className="flex items-center gap-2 flex-wrap ps-[52px] pt-2">
+        <div className="flex items-center gap-2 flex-wrap pt-2" style={indent}>
           <span className="text-[11px] text-muted-foreground">{t('convert.gif.fps')}</span>
           <Select value={String(item.fps ?? 15)} onValueChange={v => onChangeField(item.id, 'fps', Number(v))}>
             <SelectTrigger className="w-16 h-7 text-xs"><SelectValue /></SelectTrigger>
@@ -221,7 +226,8 @@ export default function Convert() {
   const setPhotoQuality = (v) => { setPhotoQualityState(v); setStaged(prev => prev.map(i => (i.kind === 'photo' ? { ...i, quality: v } : i))); };
   const setVideoTarget = (v) => { setVideoTargetState(v); setStaged(prev => prev.map(i => (i.kind === 'video' ? { ...i, target: v } : i))); };
   const setVideoQuality = (v) => { setVideoQualityState(v); setStaged(prev => prev.map(i => (i.kind === 'video' ? { ...i, quality: v } : i))); };
-  const [dragging, setDragging] = useState(false);
+  const [view, setView] = useState(() => loadView('foldreel_convert_view'));
+  const changeView = (v) => { setView(v); saveView('foldreel_convert_view', v); };
   const [busy, setBusy] = useState(false);
 
   const stageFiles = (paths) => {
@@ -249,7 +255,6 @@ export default function Convert() {
 
   const onDrop = async (e) => {
     e.preventDefault();
-    setDragging(false);
     if (!isElectron) return;
     const files = [...(e.dataTransfer?.files || [])];
     const paths = [];
@@ -261,6 +266,13 @@ export default function Convert() {
     }
     stageFiles(paths);
   };
+
+  // Files sent here from the Library start the list.
+  useEffect(() => {
+    const sent = handoff.take('convert');
+    if (sent?.length) stageFiles(sent);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const browse = async () => {
     if (!isElectron) return;
@@ -304,10 +316,10 @@ export default function Convert() {
   return (
     <div
       className="space-y-8"
-      onDragOver={e => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={e => { if (e.currentTarget === e.target) setDragging(false); }}
+      onDragOver={e => e.preventDefault()}
       onDrop={onDrop}
     >
+      <DropOverlay />
       <PageActions>
         {staged.length > 0 && (
           <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" onClick={() => setStaged([])} data-testid="convert-clear-btn">
@@ -328,7 +340,7 @@ export default function Convert() {
       {staged.length === 0 ? (
         <button
           type="button" onClick={browse} disabled={!isElectron}
-          className={`w-full rounded-xl border border-dashed py-14 flex flex-col items-center gap-3 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${dragging ? 'border-ring bg-accent/40' : 'border-border'}`}
+          className={`w-full rounded-xl border border-dashed py-14 flex flex-col items-center gap-3 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring border-border`}
         >
           <span className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
             <ArrowLeftRight className="w-[18px] h-[18px] text-muted-foreground" aria-hidden="true" />
@@ -363,12 +375,20 @@ export default function Convert() {
                 {hasQuality('video', videoTarget) && <QualitySelect value={videoQuality} onChange={setVideoQuality} />}
               </div>
             )}
+            <span className="ms-auto"><ViewSwitch value={view} onChange={changeView} /></span>
           </div>
           <div className="list">
             {staged.map(item => (
-              <StagedRow key={item.id} item={item} onChangeTarget={changeTarget} onChangeField={changeField} onRemove={removeStaged} />
+              <StagedRow key={item.id} item={item} view={view} onChangeTarget={changeTarget} onChangeField={changeField} onRemove={removeStaged} />
             ))}
           </div>
+          <button
+            type="button" onClick={browse} disabled={!isElectron}
+            className="w-full h-11 rounded-lg border border-dashed border-border text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid="convert-add-more"
+          >
+            <Plus className="w-4 h-4" aria-hidden="true" /> {t('convert.addMore')}
+          </button>
         </section>
       )}
 

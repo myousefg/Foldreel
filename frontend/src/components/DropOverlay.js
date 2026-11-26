@@ -15,7 +15,7 @@ export default function DropOverlay({ label }) {
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.12 }}
           className="pointer-events-none fixed inset-0 z-50 p-4" aria-hidden="true" data-testid="drop-overlay"
         >
-          <div className="w-full h-full rounded-2xl border-2 border-dashed border-ring bg-background/85 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
+          <div className="w-full h-full rounded-2xl border-2 border-dashed border-ring bg-background/90 flex flex-col items-center justify-center gap-3">
             <span className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
               <ImagePlus className="w-6 h-6 text-primary" />
             </span>

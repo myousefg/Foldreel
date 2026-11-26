@@ -73,6 +73,22 @@ export default function Library() {
     setParams(p);
   }, [setParams]);
 
+  // Coming back to the Library from another page lands where you left it, not at the top.
+  const fromMemory = useRef(false);
+  const restoredOnce = useRef(false);
+  useEffect(() => {
+    if (restoredOnce.current) return;
+    restoredOnce.current = true;
+    if ([...params].length) return;
+    try {
+      const last = JSON.parse(localStorage.getItem('foldreel_library_last') || 'null');
+      if (last && (last.folder || last.place || last.tag)) { fromMemory.current = true; setParams(last, { replace: true }); }
+    } catch { /* nothing remembered */ }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    try { localStorage.setItem('foldreel_library_last', JSON.stringify(Object.fromEntries([...params]))); } catch { /* ignore */ }
+  }, [params]);
+
   // ── preferences ───────────────────────────────────────────────────────────
   const [mode, setMode] = usePref('foldreel_library_mode', 'medium', VIEW_MODES);
   const [scope, setScope] = usePref('foldreel_library_scope', 'folders', ['folders', 'all']);
@@ -95,6 +111,11 @@ export default function Library() {
 
   const data = useLibraryData(query, place !== 'duplicates');
   const meta = data.meta;
+  // The remembered folder may have been moved or deleted since: fall back to the top.
+  useEffect(() => {
+    if (data.error && fromMemory.current) { fromMemory.current = false; setParams({}, { replace: true }); }
+    else if (meta) fromMemory.current = false;
+  }, [data.error, meta]); // eslint-disable-line react-hooks/exhaustive-deps
   const folders = useMemo(() => (meta?.folders || []).map((f) => ({ ...f, type: 'folder' })), [meta]);
   const F = folders.length;
   const total = data.total;
@@ -113,6 +134,9 @@ export default function Library() {
 
   // ── selection ───────────────────────────────────────────────────────────────
   const [sel, setSel] = useState(() => new Set());
+  // Select mode: a click picks or drops a file instead of replacing the selection. It starts with a
+  // long press or a drag, and ends with Cancel or once an action on the selection has been done.
+  const [selectMode, setSelectMode] = useState(false);
   const [cursor, setCursor] = useState(-1);
   const anchor = useRef(-1);
   const [renaming, setRenaming] = useState(null);       // entry index being renamed
@@ -164,7 +188,9 @@ export default function Library() {
   }, [F, folders, getAllPaths]);
 
   const clearSel = useCallback(() => { setSel(new Set()); anchor.current = -1; }, []);
-  useEffect(() => { clearSel(); setCursor(-1); setRenaming(null); }, [query, clearSel]);
+  const exitSelect = useCallback(() => { setSelectMode(false); setSel(new Set()); anchor.current = -1; }, []);
+  const finishSelect = () => { if (S.current.selectMode) exitSelect(); };
+  useEffect(() => { clearSel(); setSelectMode(false); setCursor(-1); setRenaming(null); }, [query, clearSel]);
 
   const loadedByPath = useMemo(() => {
     const m = new Map();
@@ -185,7 +211,7 @@ export default function Library() {
 
   const deleteSel = (forcePermanent = false) => {
     const paths = selPaths();
-    actions.remove(paths, paths.map(nameOf), { forcePermanent });
+    actions.remove(paths, paths.map(nameOf), { forcePermanent, after: finishSelect });
   };
 
   const send = (target) => {
@@ -350,12 +376,14 @@ export default function Library() {
     click: (e, idx) => {
       scroller.current?.focus({ preventScroll: true });
       if (S.current.renaming != null) return;
+      if (pressed.current) { pressed.current = false; return; } // the click that ends a long press
+      if (S.current.selectMode) { if (e.shiftKey) extendTo(idx, true); else toggleIdx(idx); return; }
       if (e.shiftKey) extendTo(idx, e.ctrlKey || e.metaKey);
       else if (e.ctrlKey || e.metaKey) toggleIdx(idx);
       else selectOnly(idx);
     },
     toggle: (e, idx) => { if (e.shiftKey) extendTo(idx, true); else toggleIdx(idx); },
-    open: (e, idx) => { e.preventDefault(); openEntry(idx); },
+    open: (e, idx) => { e.preventDefault(); if (!S.current.selectMode) openEntry(idx); },
     menu: (e, idx) => {
       e.preventDefault(); e.stopPropagation();
       const p = pathAt(idx);
@@ -406,6 +434,36 @@ export default function Library() {
       .map((k) => [k, (...a) => S.current.live[k](...a)]),
   ), []);
 
+  // ── long press: starts select mode ──────────────────────────────────────────
+  const pressed = useRef(false);
+  const press = useRef(null);
+  const cancelPress = () => { if (press.current) clearTimeout(press.current.timer); press.current = null; };
+  const onPressStart = (e) => {
+    pressed.current = false;
+    cancelPress();
+    const opt = e.button === 0 ? e.target.closest('[role="option"]') : null;
+    if (!opt || e.target.closest('button,input')) return;
+    const idx = Number(String(opt.id).replace('lib-e-', ''));
+    if (!Number.isFinite(idx)) return;
+    press.current = {
+      x: e.clientX, y: e.clientY,
+      timer: setTimeout(() => {
+        press.current = null;
+        const p = pathAt(idx);
+        if (!p) return;
+        pressed.current = true;
+        setSelectMode(true);
+        setSel((prev) => new Set(prev).add(p));
+        setCursor(idx); anchor.current = idx;
+      }, 450),
+    };
+  };
+  const onPressMove = (e) => {
+    const c = press.current;
+    if (c && Math.hypot(e.clientX - c.x, e.clientY - c.y) > 8) cancelPress();
+  };
+  useEffect(() => cancelPress, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── rubber band ──────────────────────────────────────────────────────────────
   const [band, setBand] = useState(null);
   const bandRef = useRef(null);
@@ -414,7 +472,7 @@ export default function Library() {
     const el = scroller.current;
     const box = el.getBoundingClientRect();
     if (e.clientX > box.left + el.clientWidth) return; // the scrollbar
-    const base = e.ctrlKey || e.metaKey || e.shiftKey ? new Set(S.current.sel) : new Set();
+    const base = e.ctrlKey || e.metaKey || e.shiftKey || S.current.selectMode ? new Set(S.current.sel) : new Set();
     const start = { x: e.clientX - box.left, y: e.clientY - box.top + el.scrollTop };
     bandRef.current = { start, base, moved: false, lastX: e.clientX, lastY: e.clientY };
     getAllPaths().catch(() => {});
@@ -424,6 +482,7 @@ export default function Library() {
       if (!b) return;
       const cur = { x: b.lastX - box.left, y: b.lastY - box.top + el.scrollTop };
       if (!b.moved && Math.hypot(cur.x - start.x, cur.y - start.y) < 5) return;
+      if (!b.moved) setSelectMode(true); // dragging a box over files is select mode too
       b.moved = true;
       setBand({ x1: start.x, y1: start.y, x2: cur.x, y2: cur.y });
       const idxs = entriesInRect(S.current.layout.rows, S.current.geo, { x1: start.x, y1: start.y, x2: cur.x, y2: cur.y });
@@ -446,7 +505,7 @@ export default function Library() {
       window.removeEventListener('mouseup', up);
       bandRef.current = null;
       setBand(null);
-      if (b && !b.moved && !e.ctrlKey && !e.metaKey && !e.shiftKey) clearSel();
+      if (b && !b.moved && !e.ctrlKey && !e.metaKey && !e.shiftKey && !S.current.selectMode) clearSel();
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
@@ -473,11 +532,11 @@ export default function Library() {
     else if (k === ' ') { e.preventDefault(); if (S.current.cursor >= 0) openEntry(S.current.cursor); }
     else if (k === 'F2') { e.preventDefault(); startRename(); }
     else if (k === 'Delete') { e.preventDefault(); if (S.current.sel.size) deleteSel(e.shiftKey); }
-    else if (k === 'Escape') { if (S.current.sel.size) clearSel(); else if (clip.op) libraryClipboard.clear(); }
+    else if (k === 'Escape') { if (S.current.selectMode) exitSelect(); else if (S.current.sel.size) clearSel(); else if (clip.op) libraryClipboard.clear(); }
     else if (k === 'Backspace' || (e.altKey && k === 'ArrowUp')) { e.preventDefault(); goUp(); }
     else if (ctrl && k.toLowerCase() === 'a') { e.preventDefault(); selectAll(); }
-    else if (ctrl && k.toLowerCase() === 'c') { e.preventDefault(); if (S.current.sel.size) { libraryClipboard.set('copy', selPaths()); toast(t('library.copiedToClipboard', { count: S.current.sel.size })); } }
-    else if (ctrl && k.toLowerCase() === 'x') { e.preventDefault(); if (S.current.sel.size) libraryClipboard.set('move', selPaths()); }
+    else if (ctrl && k.toLowerCase() === 'c') { e.preventDefault(); if (S.current.sel.size) { libraryClipboard.set('copy', selPaths()); toast(t('library.copiedToClipboard', { count: S.current.sel.size })); finishSelect(); } }
+    else if (ctrl && k.toLowerCase() === 'x') { e.preventDefault(); if (S.current.sel.size) { libraryClipboard.set('move', selPaths()); finishSelect(); } }
     else if (ctrl && k.toLowerCase() === 'v') { e.preventDefault(); pasteHere(flat ? '' : folder); }
     else if (ctrl && k.toLowerCase() === 'z') { e.preventDefault(); actions.undo(); }
     else if (ctrl && e.shiftKey && k.toLowerCase() === 'n') { e.preventDefault(); newFolder(); }
@@ -514,14 +573,14 @@ export default function Library() {
       { id: 'open-app', label: t('library.openDefault'), hidden: !isElectron || !single || single.type !== 'file', onSelect: () => window.electronAPI.openPath(single.path) },
       { id: 'reveal', label: t('library.showInFolder'), icon: FolderOpen, hidden: !isElectron || !single || !window.electronAPI?.showInFolder, onSelect: () => window.electronAPI.showInFolder(single.path) },
       { separator: true },
-      { id: 'cut', label: t('library.cut'), icon: Scissors, shortcut: 'Ctrl+X', onSelect: () => libraryClipboard.set('move', paths) },
-      { id: 'copy', label: t('library.copy'), icon: Copy, shortcut: 'Ctrl+C', onSelect: () => libraryClipboard.set('copy', paths) },
+      { id: 'cut', label: t('library.cut'), icon: Scissors, shortcut: 'Ctrl+X', onSelect: () => { libraryClipboard.set('move', paths); finishSelect(); } },
+      { id: 'copy', label: t('library.copy'), icon: Copy, shortcut: 'Ctrl+C', onSelect: () => { libraryClipboard.set('copy', paths); finishSelect(); } },
       { id: 'paste', label: t('library.pasteInto'), icon: Clipboard, shortcut: 'Ctrl+V', hidden: !oneFolder, disabled: !clip.op, onSelect: () => pasteHere(oneFolder.rel) },
       { separator: true },
       { id: 'rename', label: paths.length > 1 ? t('library.renameMany') : t('library.rename'), icon: FolderTree, shortcut: 'F2', onSelect: startRename },
       { id: 'move', label: t('library.moveTo'), icon: FolderInput, onSelect: () => setMoveOpen(true) },
       { separator: true },
-      { id: 'favorite', label: allFav ? t('library.unfavorite') : t('library.favorite'), icon: Star, hidden: !files.length, onSelect: () => actions.favorite(files, !allFav, files) },
+      { id: 'favorite', label: allFav ? t('library.unfavorite') : t('library.favorite'), icon: Star, hidden: !files.length, onSelect: () => { actions.favorite(files, !allFav, files); finishSelect(); } },
       { id: 'tags', label: t('library.tagsAction'), icon: Tag, hidden: !files.length, onSelect: () => setTagsOpen(true) },
       { separator: true },
       { id: 'convert', label: t('library.convert'), icon: ArrowLeftRight, hidden: !files.length, onSelect: () => send('convert') },
@@ -538,7 +597,7 @@ export default function Library() {
   // Latest values for the stable handlers.
   const folderPaths = useMemo(() => new Set(folders.map((f) => f.path)), [folders]);
   S.current = {
-    ...S.current, sel, cursor, renaming, layout, geo, folderPaths, byPath: (p) => loadedByPath.get(p),
+    ...S.current, sel, cursor, renaming, layout, geo, folderPaths, selectMode, byPath: (p) => loadedByPath.get(p),
   };
 
   // ── the bits around the grid ─────────────────────────────────────────────────
@@ -683,6 +742,8 @@ export default function Library() {
                 ref={scroller} tabIndex={0} role="listbox" aria-multiselectable="true" aria-label={t('library.files')}
                 aria-activedescendant={cursor >= 0 ? `lib-e-${cursor}` : undefined}
                 onKeyDown={onKeyDown} onMouseDown={onBackgroundDown}
+                onPointerDown={onPressStart} onPointerMove={onPressMove} onPointerUp={cancelPress} onPointerCancel={cancelPress}
+                onDragStart={cancelPress}
                 onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
                 onContextMenu={(e) => { if (e.target.closest('[role="option"]')) return; e.preventDefault(); clearSel(); setMenu({ x: e.clientX, y: e.clientY, kind: 'background' }); }}
                 className="flex-1 min-h-0 overflow-y-auto relative outline-none focus-visible:ring-1 focus-visible:ring-ring/40 rounded-md"
@@ -700,7 +761,7 @@ export default function Library() {
                       cells.push(
                         <EntryCell
                           key={idx} idx={idx} entry={en} mode={mode} geo={geo} t={t} fmt={fmt} handlers={handlers}
-                          selected={!!en && sel.has(en.path)} selecting={sel.size > 0} cursor={cursor === idx}
+                          selected={!!en && sel.has(en.path)} selecting={selectMode || sel.size > 0} cursor={cursor === idx}
                           cut={!!en && cutSet.has(en.path)} renaming={renaming === idx} dropTarget={dropOn === idx}
                         />,
                       );
@@ -755,19 +816,21 @@ export default function Library() {
       </div>
 
       {/* what you can do with the selection */}
-      {sel.size > 0 && place !== 'duplicates' && (
+      {(sel.size > 0 || selectMode) && place !== 'duplicates' && (
         <div className="fixed bottom-10 inset-x-0 z-40 flex justify-center ps-52 pointer-events-none">
           <div role="toolbar" aria-label={t('library.selectionBar')} data-testid="library-selection-bar"
             className="pointer-events-auto flex items-center gap-1 rounded-xl border border-border bg-card px-2 py-1.5 surface-elevated">
-            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={clearSel} title={t('library.clearSelection')} aria-label={t('library.clearSelection')}><X className="w-4 h-4" aria-hidden="true" /></Button>
-            <span className="text-[13px] font-medium tabular-nums px-1 min-w-[84px]">{t('library.selected', { count: sel.size })}</span>
+            {selectMode
+              ? <Button size="sm" variant="secondary" className="h-8" onClick={exitSelect} data-testid="library-cancel-select"><X className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('common.cancel')}</Button>
+              : <Button size="icon" variant="ghost" className="h-8 w-8" onClick={clearSel} title={t('library.clearSelection')} aria-label={t('library.clearSelection')}><X className="w-4 h-4" aria-hidden="true" /></Button>}
+            <span className="text-[13px] font-medium tabular-nums px-1 min-w-[84px]" data-testid="library-select-label">{selectMode && sel.size === 0 ? t('library.selectMode') : t('library.selected', { count: sel.size })}</span>
             <span className="w-px h-5 bg-border mx-1" aria-hidden="true" />
-            <Button size="sm" variant="ghost" className="h-8" onClick={() => setMoveOpen(true)} data-testid="library-move"><FolderInput className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.move')}</Button>
-            <Button size="sm" variant="ghost" className="h-8" onClick={() => { const f = selFiles(); const all = f.length > 0 && f.every((p) => S.current.byPath(p)?.fav); actions.favorite(f, !all, f); }}><Star className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.favorite')}</Button>
-            <Button size="sm" variant="ghost" className="h-8" onClick={() => setTagsOpen(true)}><Tag className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.tagsAction')}</Button>
-            <Button size="sm" variant="ghost" className="h-8" onClick={() => send('organize')} data-testid="library-rename"><FolderTree className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.organizeShort')}</Button>
-            <Button size="sm" variant="ghost" className="h-8" onClick={() => send('convert')} data-testid="library-convert"><ArrowLeftRight className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.convert')}</Button>
-            <Button size="sm" variant="ghost" className="h-8 text-destructive hover:text-destructive" onClick={() => deleteSel(false)} data-testid="library-delete"><Trash2 className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.delete')}</Button>
+            <Button size="sm" variant="ghost" className="h-8" disabled={!sel.size} onClick={() => setMoveOpen(true)} data-testid="library-move"><FolderInput className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.move')}</Button>
+            <Button size="sm" variant="ghost" className="h-8" disabled={!selFiles().length} onClick={() => { const f = selFiles(); const all = f.length > 0 && f.every((p) => S.current.byPath(p)?.fav); actions.favorite(f, !all, f); finishSelect(); }}><Star className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.favorite')}</Button>
+            <Button size="sm" variant="ghost" className="h-8" disabled={!selFiles().length} onClick={() => setTagsOpen(true)}><Tag className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.tagsAction')}</Button>
+            <Button size="sm" variant="ghost" className="h-8" disabled={!selFiles().length} onClick={() => send('organize')} data-testid="library-rename"><FolderTree className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.organizeShort')}</Button>
+            <Button size="sm" variant="ghost" className="h-8" disabled={!selFiles().length} onClick={() => send('convert')} data-testid="library-convert"><ArrowLeftRight className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.convert')}</Button>
+            <Button size="sm" variant="ghost" className="h-8 text-destructive hover:text-destructive" disabled={!sel.size} onClick={() => deleteSel(false)} data-testid="library-delete"><Trash2 className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.delete')}</Button>
           </div>
         </div>
       )}
@@ -776,12 +839,12 @@ export default function Library() {
       {light && lightFiles?.length > 0 && <MediaLightbox files={lightFiles} index={light.index} onIndex={(i) => setLight((l) => ({ ...l, index: i }))} onClose={() => setLight(null)} />}
       <LibraryMoveDialog
         open={moveOpen} count={sel.size} current={flat ? '' : folder} onClose={() => setMoveOpen(false)}
-        onMove={async (dest, newFolder_) => { setMoveOpen(false); await actions.paste('move', selPaths(), dest, newFolder_); clearSel(); }}
+        onMove={async (dest, newFolder_) => { setMoveOpen(false); await actions.paste('move', selPaths(), dest, newFolder_); exitSelect(); }}
       />
       <TagsDialog
-        open={tagsOpen} onClose={() => setTagsOpen(false)} items={selectedItems} count={selFiles().length}
+        open={tagsOpen} onClose={() => { setTagsOpen(false); if (S.current.tagsChanged) { S.current.tagsChanged = false; finishSelect(); } }} items={selectedItems} count={selFiles().length}
         known={(tree?.tags || []).map((x) => x.tag)} t={t}
-        onChange={(add, remove) => { const f = selFiles(); actions.tags(f, add, remove, f); }}
+        onChange={(add, remove) => { const f = selFiles(); S.current.tagsChanged = true; actions.tags(f, add, remove, f); }}
       />
       <PermanentDeleteDialog
         open={!!actions.pendingDelete} names={actions.pendingDelete?.names || []} count={actions.pendingDelete?.paths.length || 0}

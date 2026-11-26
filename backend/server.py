@@ -66,6 +66,7 @@ CONFIG_PATH = BASE_DIR / "gallery-dl.json"
 CACHE_PATH = BASE_DIR / "gallery-dl-cache.sqlite3"   # gallery-dl's token/cursor cache
 TOOLS_DIR = BASE_DIR / "tools"
 THUMBS_DIR = BASE_DIR / "thumbs"                     # generated video frame cache
+AVATARS_DIR = BASE_DIR / "avatars"                   # a watched creator's profile picture, one file per watch
 COOKIES_DIR = BASE_DIR / "cookies"                   # drop cookies.txt exports here
 COOKIES_MERGED = BASE_DIR / "cookies-merged.txt"     # generated: all of the above, deduped
 COOKIES_DIR.mkdir(parents=True, exist_ok=True)
@@ -515,6 +516,9 @@ CREATE INDEX IF NOT EXISTS idx_organize_log_organized ON organize_log(organized_
             ("settings", "notifications_enabled", "INTEGER DEFAULT 1"),
             ("settings", "extension_secret", "TEXT DEFAULT ''"),
             ("settings", "extension_last_used", "TEXT DEFAULT ''"),
+            ("settings", "extension_seen_at", "TEXT DEFAULT ''"),
+            ("settings", "extension_version", "TEXT DEFAULT ''"),
+            ("settings", "extension_link_until", "TEXT DEFAULT ''"),
             ("settings", "gdl_overrides", "TEXT DEFAULT '{}'"),
             ("settings", "presets", "TEXT DEFAULT '[]'"),
             ("settings", "default_photo_format", "TEXT DEFAULT 'keep'"),
@@ -1086,10 +1090,64 @@ def _job_public(row: Optional[dict]) -> dict:
     return row
 
 
+_AVATAR_KEYS = ("profile_pic_url_hd", "profile_pic_url", "profile_image_url_https", "profile_image_url",
+                "profile_image", "avatar_url", "avatar", "icon_img", "userpic", "user_image")
+_AVATAR_OWNERS = ("user", "author", "owner", "uploader", "artist", "creator", "channel", "account", "blog")
+
+
+def _avatar_from_meta(d: dict) -> str:
+    """A creator's profile picture address from a gallery-dl metadata file, wherever the site keeps it."""
+    def pick(o) -> str:
+        if not isinstance(o, dict):
+            return ""
+        for k in _AVATAR_KEYS:
+            v = o.get(k)
+            if isinstance(v, dict):
+                v = v.get("url") or v.get("src")
+            if isinstance(v, str) and v.startswith(("http://", "https://")):
+                return v
+        return ""
+    got = pick(d)
+    if got:
+        return got
+    for k in _AVATAR_OWNERS:
+        got = pick(d.get(k))
+        if got:
+            return got
+    return ""
+
+
+def _avatar_path(watch_id: str) -> Path:
+    return AVATARS_DIR / f"{re.sub(r'[^0-9a-f]', '', watch_id)[:40]}.img"
+
+
+def _save_watch_avatar(watch_id: str, url: str) -> bool:
+    """Download a profile picture once, so the Watch page does not hotlink a site (whose address
+    expires, and which would see every visit). Small images only."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 Foldreel"})
+        with urllib.request.urlopen(req, timeout=10) as r:  # noqa: S310 - http(s) checked by the caller
+            if "image" not in (r.headers.get("Content-Type") or "").lower():
+                return False
+            data = r.read(2_000_001)
+        if not data or len(data) > 2_000_000:
+            return False
+        AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+        _avatar_path(watch_id).write_bytes(data)
+        return True
+    except Exception:
+        return False
+
+
 def _watch_public(row: Optional[dict]) -> dict:
     if not row:
         return {}
     row = dict(row)
+    try:
+        row["has_avatar"] = _avatar_path(row.get("id", "")).is_file()
+    except Exception:
+        row["has_avatar"] = False
     try:
         row["options"] = json.loads(row.pop("options_json", "{}") or "{}")
     except Exception:
@@ -1485,6 +1543,18 @@ class JobManager:
             except Exception:
                 pass
         _lib_state["dirty"] = True
+        # A watched creator's profile picture, when the site's metadata names one.
+        wid = (_job_row(job_id) or {}).get("watch_id")
+        if wid and not _avatar_path(wid).is_file():
+            for raw in sidecar_sources:
+                try:
+                    with open(raw + ".json", "rb") as fh:
+                        meta = json.loads(fh.read(1_000_000).decode("utf-8", "replace"))
+                    got = _avatar_from_meta(meta) if isinstance(meta, dict) else ""
+                    if got and await asyncio.to_thread(_save_watch_avatar, wid, got):
+                        break
+                except (OSError, ValueError):
+                    continue
         if not int(settings.get("write_metadata", 0)):
             for raw in sidecar_sources:
                 try:
@@ -2504,6 +2574,17 @@ async def _local_guard(request: Request, call_next):
     if host and host not in ("127.0.0.1", "localhost"):
         return JSONResponse({"detail": "bad host"}, status_code=403)
     path = request.url.path
+    # The extension says hello before it holds a pairing code, so this one route has no secret to
+    # check. What it can do is narrow: note that an extension exists, and, only while the person
+    # has pressed "Link the extension" in Foldreel, hand the pairing code to it. A web page can not
+    # reach it, because a page's Origin is its own site and never a browser-extension origin.
+    if path == "/api/extension-hello":
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        origin = request.headers.get("origin") or ""
+        if not origin.startswith(("chrome-extension://", "moz-extension://", "edge-extension://")):
+            return JSONResponse({"detail": "forbidden origin"}, status_code=403)
+        return await call_next(request)
     # The browser extension is a separate trust boundary from the Electron
     # renderer: it has no way to receive the per-run FOLDREEL_TOKEN (that's only
     # ever handed over via Electron's preload argv), and its requests carry
@@ -2833,6 +2914,17 @@ def create_watch(body: WatchIn):
     return _watch_public(db_one("SELECT * FROM watches WHERE id=?", (watch_id,)))
 
 
+@api.get("/watches/{watch_id}/avatar")
+def watch_avatar(watch_id: str):
+    p = _avatar_path(watch_id)
+    if not p.is_file():
+        raise HTTPException(404, "No picture")
+    head = p.read_bytes()[:12]
+    kind = ("image/png" if head.startswith(b"\x89PNG") else "image/webp" if head[8:12] == b"WEBP"
+            else "image/gif" if head.startswith(b"GIF8") else "image/jpeg")
+    return FileResponse(str(p), media_type=kind, headers={"Cache-Control": "private, max-age=3600"})
+
+
 @api.patch("/watches/{watch_id}")
 def update_watch(watch_id: str, body: WatchPatch):
     row = db_one("SELECT * FROM watches WHERE id=?", (watch_id,))
@@ -2851,6 +2943,10 @@ def delete_watch(watch_id: str):
     if not row:
         raise HTTPException(404, "Watch not found")
     db_run("DELETE FROM watches WHERE id=?", (watch_id,))
+    try:
+        _avatar_path(watch_id).unlink(missing_ok=True)
+    except OSError:
+        pass
     return {"ok": True}
 
 
@@ -2935,6 +3031,49 @@ def enable_extension():
         (secret,),
     )
     return {"extension_secret": secret}
+
+
+def _link_window_open() -> bool:
+    until = (get_settings().get("extension_link_until") or "")
+    return bool(until) and until > _now()
+
+
+class ExtensionHelloIn(BaseModel):
+    version: Optional[str] = ""
+    paired: Optional[bool] = False
+
+
+# The extension calls this when it starts, is installed, or its popup opens. It lets Foldreel show
+# "extension found" even before pairing, and finish pairing by itself during the short window that
+# opens when the person presses "Link the extension".
+@api.post("/extension-hello")
+def extension_hello(body: ExtensionHelloIn):
+    version = re.sub(r"[^0-9A-Za-z.\-]", "", body.version or "")[:20]
+    db_run("UPDATE settings SET extension_seen_at=?, extension_version=? WHERE id='singleton'", (_now(), version))
+    out = {"app": "foldreel", "version": APP_VERSION, "linked": False}
+    if _link_window_open():
+        secret = get_settings().get("extension_secret") or ""
+        if not secret:
+            secret = secrets.token_hex(24)
+        db_run(
+            "UPDATE settings SET extension_secret=?, extension_last_used=?, extension_link_until='' WHERE id='singleton'",
+            (secret, _now()),
+        )
+        out.update({"linked": True, "secret": secret})
+    return out
+
+
+@api.post("/extension-link")
+def open_extension_link():
+    until = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    db_run("UPDATE settings SET extension_link_until=? WHERE id='singleton'", (until,))
+    return {"extension_link_until": until}
+
+
+@api.delete("/extension-link")
+def cancel_extension_link():
+    db_run("UPDATE settings SET extension_link_until='' WHERE id='singleton'")
+    return {"extension_link_until": ""}
 
 
 @api.delete("/extension-pairing")

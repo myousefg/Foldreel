@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Reorder } from 'motion/react';
 import {
   Plus, ArrowRight, Undo2, Loader2, Check, ImageIcon, FolderCog, Braces, GripVertical, X, Trash2,
-  ArrowLeftRight, FolderTree,
+  ArrowLeftRight, FolderTree, FolderPlus, FilePlus2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -166,12 +166,13 @@ export default function Organize() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const browseStagedItems = async () => {
+  // Windows can not show files and folders in one picker (asking for both only lists folders),
+  // so files and folders each get their own.
+  const browseStagedItems = async (what = 'files') => {
     if (!isElectron) return;
-    const paths = await window.electronAPI.selectFiles({
-      title: t('organize.chooseItems'),
-      properties: ['openFile', 'openDirectory', 'multiSelections'],
-    });
+    const paths = await window.electronAPI.selectFiles(what === 'folders'
+      ? { title: t('organize.chooseFolders'), properties: ['openDirectory', 'multiSelections'] }
+      : { title: t('organize.chooseFiles'), properties: ['openFile', 'multiSelections'] });
     if (paths?.length) addStagedPaths(paths);
   };
 
@@ -212,7 +213,20 @@ export default function Organize() {
     }
   };
 
-  const stacked = view !== 'list';
+  // While a row is being dragged, every other row shrinks to a single line so the whole list fits
+  // on screen and the row can be dropped anywhere. They go back to the chosen view on drop.
+  const [dragPath, setDragPath] = useState(null);
+  const anchor = useRef(null); // the dragged row's place on screen, kept still while the others resize
+  const keepPlace = (li) => {
+    const scroller = li?.closest('main');
+    if (scroller && li) anchor.current = { li, scroller, top: li.getBoundingClientRect().top };
+  };
+  useLayoutEffect(() => {
+    const a = anchor.current;
+    if (!a || !a.li.isConnected) return;
+    a.scroller.scrollTop += a.li.getBoundingClientRect().top - a.top;
+    anchor.current = null;
+  }, [dragPath]);
 
   return (
     <div
@@ -227,9 +241,21 @@ export default function Organize() {
             <X className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('organize.clearAll')}
           </Button>
         )}
-        <Button variant="outline" size="sm" className="h-8" onClick={browseStagedItems} disabled={!isElectron} data-testid="rename-choose-items-btn">
-          <Plus className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('organize.chooseItems')}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8" disabled={!isElectron} data-testid="rename-choose-items-btn">
+              <Plus className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('organize.chooseItems')}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => browseStagedItems('files')} data-testid="rename-choose-files">
+              <FilePlus2 className="w-4 h-4 me-2" aria-hidden="true" /> {t('organize.chooseFiles')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => browseStagedItems('folders')} data-testid="rename-choose-folders">
+              <FolderPlus className="w-4 h-4 me-2" aria-hidden="true" /> {t('organize.chooseFolders')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         {staged.length > 0 && (
           <Button size="sm" className="h-8" onClick={applyRename} disabled={renameApplying} data-testid="rename-apply-btn">
             {renameApplying ? <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" /> : <ArrowLeftRight className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />}
@@ -239,15 +265,20 @@ export default function Organize() {
       </PageActions>
 
       {staged.length === 0 ? (
-        <button
-          type="button" onClick={browseStagedItems} disabled={!isElectron}
-          className={`w-full rounded-xl border border-dashed py-14 flex flex-col items-center gap-3 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring border-border`}
-        >
+        <div className="w-full rounded-xl border border-dashed border-border py-12 flex flex-col items-center gap-4">
           <span className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
             <FolderTree className="w-[18px] h-[18px] text-muted-foreground" aria-hidden="true" />
           </span>
           <span className="text-sm font-medium">{t('organize.dropHint')}</span>
-        </button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => browseStagedItems('files')} disabled={!isElectron} data-testid="rename-empty-files">
+              <FilePlus2 className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('organize.chooseFiles')}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => browseStagedItems('folders')} disabled={!isElectron} data-testid="rename-empty-folders">
+              <FolderPlus className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('organize.chooseFolders')}
+            </Button>
+          </div>
+        </div>
       ) : (
         <section className="space-y-4" aria-label={t('organize.bulkRename')}>
           <div className="grid grid-cols-[1fr_1.4fr_auto] gap-3 items-end px-3">
@@ -277,14 +308,18 @@ export default function Organize() {
             {staged.map((it, idx) => {
               const n = Number(renameStart) + idx;
               const next = computeNewName(it, renameName, renameTemplate, n);
+              const rowView = dragPath && dragPath !== it.path ? 'list' : view;
+              const stacked = rowView !== 'list';
               return (
                 <Reorder.Item
-                  key={it.path} value={it}
+                  key={it.path} value={it} layout="position"
+                  onDragStart={e => { keepPlace(e.target?.closest?.('li')); setDragPath(it.path); }}
+                  onDragEnd={e => { keepPlace(e.target?.closest?.('li')); setDragPath(null); }}
                   className="flex items-center gap-3 bg-background px-3 py-2.5 cursor-grab active:cursor-grabbing"
                 >
                   <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden="true" />
                   <span className="text-[11px] text-muted-foreground w-6 text-end shrink-0 tabular-nums">{n}</span>
-                  <Thumb path={it.path} isDir={it.is_dir} view={view} />
+                  <Thumb path={it.path} isDir={it.is_dir} view={rowView} />
                   {stacked ? (
                     <div className="min-w-0 flex-1 space-y-1">
                       <p className="text-xs text-muted-foreground truncate" title={it.name}>{it.name}</p>
@@ -304,13 +339,17 @@ export default function Organize() {
               );
             })}
           </Reorder.Group>
-          <button
-            type="button" onClick={browseStagedItems} disabled={!isElectron}
-            className="w-full h-11 rounded-lg border border-dashed border-border text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            data-testid="organize-add-more"
-          >
-            <Plus className="w-4 h-4" aria-hidden="true" /> {t('organize.addMore')}
-          </button>
+          <div className="flex gap-2">
+            {[['files', FilePlus2, 'organize.chooseFiles'], ['folders', FolderPlus, 'organize.chooseFolders']].map(([what, Icon, key]) => (
+              <button
+                key={what} type="button" onClick={() => browseStagedItems(what)} disabled={!isElectron}
+                className="flex-1 h-11 rounded-lg border border-dashed border-border text-[13px] text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                data-testid={`organize-add-${what}`}
+              >
+                <Icon className="w-4 h-4" aria-hidden="true" /> {t(key)}
+              </button>
+            ))}
+          </div>
         </section>
       )}
 

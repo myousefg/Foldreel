@@ -15,15 +15,20 @@ From the [Chrome Web Store](https://chromewebstore.google.com/detail/ipmdcekleim
 
 Then connect it to Foldreel:
 
-1. In Foldreel, go to **Advanced → Extension → Enable** and copy the pairing code.
-2. Click the Foldreel toolbar icon, paste the code into the popup, and click **Connect**.
+1. In Foldreel, go to **Advanced → Extension** and press **Link**. The extension picks up the code by itself,
+   or you can paste the pairing code into the popup and click **Connect**.
 
 ## Use
 
 - Click the toolbar icon to open a small popup with the current tab's URL and
   a **Send to Foldreel** button. On a YouTube page it also shows the quality
   and format picker, same as the Dashboard's.
-- Right-click a link (or the page) → **Send to Foldreel** sends it immediately,
+- Hover a picture or video and the floating **Foldreel** button sends the right thing: for a video, the post it
+  belongs to (a clip in a TikTok or Instagram grid, a tweet in a feed), else the video file, else the page;
+  for a picture, the picture file itself (full size on X), or the post when it is the cover of a video. On a
+  page that is itself one post (a watch page, a status page) that page is sent. Point at the button to see
+  the link it will send.
+- Right-click a link, a picture, a video or the page → **Send to Foldreel** sends it immediately,
   no popup - a green check flashes on success; a red `!` means Foldreel isn't
   running; an amber `?` means the pairing code was revoked or rotated -
   reconnect from the popup.
@@ -32,12 +37,10 @@ Then connect it to Foldreel:
   spots one. Choose the detected direct file link to send the real file
   together with the page it came from, which most such sites need to allow
   the download at all.
-- The **This site** panel in the popup has two per-site controls:
-  - **Floating download button** - the small button that appears when you
-    hover an image or video. Switch it off for sites where it gets in the way.
-    It can also be turned off everywhere, and hidden sites managed, from the
-    extension's settings page (the **Settings** link in the popup). Changes apply
-    to open tabs immediately.
+- The popup has switches for the site in the tab and, under **Every site**, for all sites. Turning a site off
+  covers its subdomains too (switching off `tiktok.com` also covers `m.tiktok.com`), and changes apply to open
+  tabs immediately. The quality and format you pick for YouTube are remembered.
+  - **Floating button** - the small button that appears when you hover an image or video.
   - **Login cookies** - sends this browser's cookies for the site to Foldreel so
     downloads work the way you're logged in. If Foldreel already has cookies for
     the site the button says **Replace**, and sending overwrites the saved
@@ -53,8 +56,7 @@ Then connect it to Foldreel:
     closed, and you stay where you were; the settings page has a switch for it.
     Sign-in, payment and share windows opened by a
     button you press still work. If a site breaks, switch it off for that site
-    here; it can also be turned off everywhere, and allowed sites managed, from
-    the extension's settings page. Hidden things are only hidden, never deleted,
+    here, or turn it off for every site under **Every site**. Hidden things are only hidden, never deleted,
     and come back when you switch it off.
 - **Alt+Shift+F** sends the current page without opening the popup. Rebind it at
   `chrome://extensions/shortcuts`.

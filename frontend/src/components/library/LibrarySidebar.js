@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronRight, Clock, Copy, Folder, FolderOpen, Hash, Images, Star } from 'lucide-react';
+import { ChevronRight, Clock, Copy, Folder, FolderOpen, Hash, Images, ShieldAlert, Star } from 'lucide-react';
 import { isLibraryDrag } from '@/lib/libraryDnd';
 
 function buildTree(dirs) {
@@ -102,6 +102,7 @@ export default function LibrarySidebar({ tree, place, folder, tag, onNavigate, o
         over={over === 'fav'} dropProps={drop({ type: 'favorites' }, 'fav')} />
       <Item icon={Clock} label={t('library.place.recent')} count={tree?.recent} active={place === 'recent'} onClick={() => onNavigate({ place: 'recent' })} testid="library-place-recent" />
       <Item icon={Copy} label={t('library.place.duplicates')} active={place === 'duplicates'} onClick={() => onNavigate({ place: 'duplicates' })} testid="library-place-duplicates" />
+      <Item icon={ShieldAlert} label={t('library.place.corrupted')} active={place === 'corrupted'} onClick={() => onNavigate({ place: 'corrupted' })} testid="library-place-corrupted" />
 
       {heading(t('library.folders'))}
       {[...root.kids.values()].map((k) => renderNode(k, 0))}

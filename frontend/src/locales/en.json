@@ -231,7 +231,8 @@
     "place": {
       "favorites": "Favorites",
       "recent": "Recent",
-      "duplicates": "Duplicates"
+      "duplicates": "Duplicates",
+      "corrupted": "Corrupted"
     },
     "newFolderHere": "Or make a new folder here",
     "actionFailed": "Something went wrong.",
@@ -265,6 +266,16 @@
     "dupNone": "No duplicates found.",
     "dupOldest": "Oldest",
     "dupSet": "{{count}} identical files · {{size}} each",
+    "corruptFailed": "Could not check for corrupted files.",
+    "corruptChecking": "Checking {{done}} of {{total}}",
+    "corruptStop": "Stop",
+    "corruptRecheck": "Check again",
+    "corruptDeep": "Play videos to the end (slower)",
+    "corruptSummary": "Corrupted files: {{count}}",
+    "corruptNone": "No corrupted files. {{count}} checked.",
+    "corruptNoneBody": "Every picture and video opens.",
+    "corruptAll": "Select all",
+    "corruptNoneSel": "Select none",
     "dupSummary": "Sets of identical files: {{count}} · {{size}} could be freed",
     "favorite": "Add to favorites",
     "unfavorite": "Remove from favorites",
@@ -703,7 +714,7 @@
     },
     "library": {
       "title": "Library",
-      "body": "Your download folder as a file manager: folders, five views, search, drag and drop, favorites, tags and a duplicates finder. Videos play right here. Press and hold, or drag a box, to select many."
+      "body": "Your download folder as a file manager: folders, five views, search, drag and drop, favorites, tags, and finders for duplicates and corrupted files. Videos play right here. Press and hold, or drag a box, to select many."
     },
     "edit": {
       "title": "Edit",
@@ -837,7 +848,7 @@
   "edit": {
     "empty": "Drop a photo, video or sound here",
     "choose": "Choose a file",
-    "change": "Open another",
+    "change": "Choose another",
     "notMedia": "That is not a photo, video or sound file.",
     "loadFailed": "Could not open that file.",
     "previewFailed": "This file can't be previewed here, but editing and saving still work.",

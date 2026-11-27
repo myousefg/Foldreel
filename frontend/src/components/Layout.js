@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'motion/react';
 import { useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
+import TitleBar, { hasCustomTitleBar } from './TitleBar';
 import { HeaderSlots } from './PageHeader';
 import { useI18n } from '@/context/I18nProvider';
 import { routeFade } from '@/lib/motion';
@@ -20,13 +21,17 @@ export default function Layout({ children }) {
   // Slot elements for the title row; pages render into them via <PageActions> / <PageSubtitle>.
   const [actionsEl, setActionsEl] = useState(null);
   const [subtitleEl, setSubtitleEl] = useState(null);
+  const [pageWide, setPageWide] = useState(false);
   const titleKey = PAGE_TITLE_KEYS[location.pathname];
-  // The Library is a file explorer: it takes the whole window instead of the centred column.
-  const wide = location.pathname === '/library' || location.pathname === '/edit';
+  const bar = hasCustomTitleBar(); // the desktop app draws its own top strip
+  // The Library is a file explorer and the editor a workspace: they take the whole window instead of the centred column.
+  const wide = location.pathname === '/library' || pageWide;
 
   return (
-    <HeaderSlots.Provider value={{ actions: actionsEl, subtitle: subtitleEl }}>
-      <div className="relative flex h-screen overflow-clip bg-background" data-testid="app-layout">
+    <HeaderSlots.Provider value={{ actions: actionsEl, subtitle: subtitleEl, setWide: setPageWide }}>
+      <div className="relative flex flex-col h-screen overflow-clip bg-background" style={{ '--titlebar-h': bar ? '2.5rem' : '0rem' }} data-testid="app-layout">
+        {bar && <TitleBar />}
+        <div className="flex flex-1 min-h-0">
         <Sidebar />
         {/* layoutScroll tells list animations (drag to reorder) that this box scrolls, so rows do not jump while it does */}
         <motion.main layoutScroll className="relative flex-1 min-w-0 overflow-y-auto overscroll-contain">
@@ -49,6 +54,7 @@ export default function Layout({ children }) {
             {children}
           </motion.div>
         </motion.main>
+        </div>
       </div>
     </HeaderSlots.Provider>
   );

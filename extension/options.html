@@ -31,7 +31,6 @@
     <img src="icons/icon48.png" alt="">
     <h1>Foldreel extension</h1>
   </div>
-  <p class="lede">Sends links, pages and login cookies to Foldreel running on this computer. Nothing leaves your machine.</p>
 
   <h2 class="group-title" id="conn-heading">Connection</h2>
   <div class="list block" role="group" aria-labelledby="conn-heading">
@@ -39,7 +38,7 @@
       <span id="conn" class="pill"><span class="dot" aria-hidden="true"></span><span id="conn-text">Checking…</span></span>
       <button id="disconnect" class="btn small" type="button">Disconnect</button>
     </div>
-    <p>In Foldreel, open Settings, then Browser extension, turn it on, and paste the pairing code here.</p>
+    <p>In Foldreel, open Advanced, then Extension, and press Link. Or paste the pairing code here.</p>
     <form id="pair-form" class="inline">
       <input id="code" type="text" class="mono" placeholder="Pairing code" aria-label="Pairing code" autocomplete="off" spellcheck="false">
       <button class="btn primary" type="submit">Connect</button>
@@ -50,8 +49,8 @@
   <div class="list" role="group" aria-labelledby="hover-heading">
     <div class="item">
       <div class="item-text">
-        <span class="item-title" id="hover-title">Show on images and videos</span>
-        <span class="item-desc" id="hover-desc">A small button appears when you hover a photo or video. You can also hide it per site from the toolbar popup.</span>
+        <span class="item-title" id="hover-title">Show on photos and videos</span>
+        <span class="item-desc" id="hover-desc">On every site, unless hidden below</span>
       </div>
       <label class="switch">
         <input id="hover-enabled" type="checkbox" role="switch" aria-labelledby="hover-title" aria-describedby="hover-desc">
@@ -72,8 +71,8 @@
   <div class="list" role="group" aria-labelledby="popups-heading">
     <div class="item">
       <div class="item-text">
-        <span class="item-title" id="popups-title">Block them on every site</span>
-        <span class="item-desc" id="popups-desc">Stops pop-up and pop-under windows, and hides invisible layers and links that sit over a page to catch your clicks. You can turn it off for one site from the toolbar popup.</span>
+        <span class="item-title" id="popups-title">Block them</span>
+        <span class="item-desc" id="popups-desc">Pop-ups, pop-unders and invisible layers that catch clicks</span>
       </div>
       <label class="switch">
         <input id="popups-enabled" type="checkbox" role="switch" aria-labelledby="popups-title" aria-describedby="popups-desc">
@@ -83,7 +82,7 @@
     <div class="item">
       <div class="item-text">
         <span class="item-title" id="close-title">Close tabs that ads open</span>
-        <span class="item-desc" id="close-desc">When a page that has already tried a pop-up opens another site in a new tab, that tab is closed and you stay on the page. Sign-in, payment and share pages are never closed.</span>
+        <span class="item-desc" id="close-desc">Sign-in, payment and share pages are left alone</span>
       </div>
       <label class="switch">
         <input id="popups-close" type="checkbox" role="switch" aria-labelledby="close-title" aria-describedby="close-desc">
@@ -102,12 +101,12 @@
 
   <h2 class="group-title" id="cookie-heading">Login cookies</h2>
   <div class="list block" role="group" aria-labelledby="cookie-heading">
-    <p style="margin:0">Cookies are only sent when you press Add or Replace in the toolbar popup, never automatically. Sending again for the same site replaces the saved copy, so refresh them after you log in again.</p>
+    <p style="margin:0">Sent only when you press Add or Replace in the toolbar popup.</p>
   </div>
 
   <h2 class="group-title" id="key-heading">Shortcut</h2>
   <div class="list block" role="group" aria-labelledby="key-heading">
-    <p style="margin:0"><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> sends the current page. Change it in your browser's extension shortcuts page.</p>
+    <p style="margin:0"><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> sends the current page. Change it in your browser's shortcut settings.</p>
   </div>
 
   <p class="about"><span id="version"></span> · <a href="https://github.com/myousefg/Foldreel/blob/main/PRIVACY.md" target="_blank" rel="noopener">Privacy policy</a></p>

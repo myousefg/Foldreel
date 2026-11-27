@@ -1014,3 +1014,47 @@ def test_tiktok_progress_lines_are_recognised():
     d = srv._YTDLP_DEST.match(r"[download] Destination: D:\dl\tiktok\someone\7710 a title.mp4")
     assert d and d.group(1).endswith("a title.mp4")
     assert not srv._YTDLP_ITEM.match("[download] 100% of 4.20MiB in 00:00:01")
+
+
+def test_library_corrupted_check_flags_broken_files_only(live):
+    import io
+    import time as _t
+    from PIL import Image
+    root = _out(live) / "lib-corrupt"
+    root.mkdir()
+    buf = io.BytesIO()
+    Image.effect_noise((200, 200), 80).convert("RGB").save(buf, "JPEG", quality=90)
+    good = buf.getvalue()
+    (root / "good.jpg").write_bytes(good)
+    (root / "cut.jpg").write_bytes(good[: len(good) // 2])          # a download that stopped half way
+    (root / "empty.jpg").write_bytes(b"")
+    (root / "fake.jpg").write_bytes(b"this is not a picture at all" * 20)
+    (root / "fake.mp4").write_bytes(b"this is not a video at all" * 40)
+    live.request("GET", "/api/library?refresh=true")
+    assert live.request("POST", "/api/library/corrupted/scan", {"deep": False})[1]["started"]
+    for _ in range(100):
+        state = live.request("GET", "/api/library/corrupted")[1]
+        if not state["running"] and state["finished_at"]:
+            break
+        _t.sleep(0.2)
+    bad = {f["name"]: f["reason"] for f in state["files"] if "lib-corrupt" in f["folder"]}
+    assert set(bad) == {"cut.jpg", "empty.jpg", "fake.jpg", "fake.mp4"}, bad
+    assert "good.jpg" not in bad and bad["empty.jpg"] == "Empty file"
+    # a second scan has nothing new to look at
+    live.request("POST", "/api/library/corrupted/scan", {"deep": False})
+    for _ in range(100):
+        state = live.request("GET", "/api/library/corrupted")[1]
+        if not state["running"]:
+            break
+        _t.sleep(0.2)
+    assert state["total"] == 0
+    # fixing the file clears it
+    (root / "cut.jpg").write_bytes(good)
+    live.request("GET", "/api/library?refresh=true")
+    live.request("POST", "/api/library/corrupted/scan", {"deep": False})
+    for _ in range(100):
+        state = live.request("GET", "/api/library/corrupted")[1]
+        if not state["running"]:
+            break
+        _t.sleep(0.2)
+    assert "cut.jpg" not in {f["name"] for f in state["files"]}

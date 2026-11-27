@@ -14,8 +14,8 @@ const el = {
   mediaDetect: $('media-detect'), mediaUse: $('media-use'), mediaUrl: $('media-url'),
   ytRow: $('yt-row'), quality: $('quality'), format: $('format'),
   send: $('send'), siteHeading: $('site-heading'),
-  hoverSite: $('hover-site'), hoverDesc: $('hover-desc'),
-  popupsSite: $('popups-site'), popupsDesc: $('popups-desc'),
+  hoverSite: $('hover-site'), hoverDesc: $('hover-desc'), hoverAll: $('hover-all'),
+  popupsSite: $('popups-site'), popupsDesc: $('popups-desc'), popupsAll: $('popups-all'),
   cookieDesc: $('cookie-desc'), sendCookies: $('send-cookies'),
   status: $('status'), openSettings: $('open-settings'),
   disconnect: $('disconnect-link'), version: $('version'),
@@ -46,8 +46,8 @@ function setStatus(text, kind) {
 const FAILURES = {
   'not-paired': 'Not connected yet.',
   offline: "Couldn't reach Foldreel. Is it running?",
-  unauthorized: 'The pairing code is no longer valid. Reconnect below.',
-  'no-cookies': "No cookies found for this site. Make sure you're logged in.",
+  unauthorized: 'The pairing code has expired. Paste a new one.',
+  'no-cookies': 'No cookies here. Log in first.',
 };
 const failureText = (r) => FAILURES[r?.reason] || 'Something went wrong.';
 
@@ -86,30 +86,34 @@ async function refreshConnection() {
   el.connText.textContent = text;
 }
 
-// ── Per-site settings ───────────────────────────────────────────────────────
+// ── Settings ────────────────────────────────────────────────────────────────
+// Each feature has a switch for every site and one for the site in the tab. The site one only matters
+// while the every-site one is on, and a host in the list also covers its subdomains.
 async function refreshHover() {
   const { hoverEnabled, hoverHiddenHosts } = await Prefs.get();
   const globallyOff = hoverEnabled === false;
-  el.hoverSite.disabled = globallyOff;
-  el.hoverSite.checked = !globallyOff && !hoverHiddenHosts.includes(currentHost);
-  el.hoverDesc.textContent = globallyOff
-    ? 'Turned off for every site in Settings'
-    : 'On images and videos';
+  el.hoverAll.checked = !globallyOff;
+  el.hoverSite.disabled = globallyOff || !currentHost;
+  el.hoverSite.checked = !globallyOff && !Prefs.hostIn(hoverHiddenHosts, currentHost);
+  el.hoverDesc.textContent = globallyOff ? 'Off on every site' : '';
+  el.hoverDesc.hidden = !el.hoverDesc.textContent;
 }
 
 async function refreshPopups() {
   const { popupsEnabled, popupsAllowedHosts } = await Prefs.get();
   const globallyOff = popupsEnabled === false;
-  const on = !globallyOff && !popupsAllowedHosts.includes(currentHost);
-  el.popupsSite.disabled = globallyOff;
+  const on = !globallyOff && !Prefs.hostIn(popupsAllowedHosts, currentHost);
+  el.popupsAll.checked = !globallyOff;
+  el.popupsSite.disabled = globallyOff || !currentHost;
   el.popupsSite.checked = on;
-  if (globallyOff) { el.popupsDesc.textContent = 'Turned off for every site in Settings'; return; }
-  if (!on) { el.popupsDesc.textContent = 'Off for this site'; return; }
-  let count = 0;
-  try { count = (await chrome.runtime.sendMessage({ type: 'popups-count', tabId: currentTabId }))?.count || 0; } catch { /* no background yet */ }
-  el.popupsDesc.textContent = count
-    ? `Stopped ${count} on this page`
-    : 'Nothing stopped on this page';
+  if (globallyOff) el.popupsDesc.textContent = 'Off on every site';
+  else if (!on) el.popupsDesc.textContent = 'Off here';
+  else {
+    let count = 0;
+    try { count = (await chrome.runtime.sendMessage({ type: 'popups-count', tabId: currentTabId }))?.count || 0; } catch { /* no background yet */ }
+    el.popupsDesc.textContent = count ? `Stopped ${count} on this page` : '';
+  }
+  el.popupsDesc.hidden = !el.popupsDesc.textContent;
 }
 
 async function refreshCookieStatus() {
@@ -133,13 +137,20 @@ async function refreshCookieStatus() {
 
 el.hoverSite.addEventListener('change', async () => {
   await Prefs.setHostHidden(currentHost, !el.hoverSite.checked);
-  setStatus('');
+  refreshHover();
+});
+el.hoverAll.addEventListener('change', async () => {
+  await Prefs.setHoverEnabled(el.hoverAll.checked);
+  refreshHover();
 });
 
 el.popupsSite.addEventListener('change', async () => {
   await Prefs.setPopupsAllowed(currentHost, !el.popupsSite.checked);
   refreshPopups();
-  setStatus('');
+});
+el.popupsAll.addEventListener('change', async () => {
+  await Prefs.setPopupsEnabled(el.popupsAll.checked);
+  refreshPopups();
 });
 
 el.sendCookies.addEventListener('click', async () => {
@@ -164,11 +175,15 @@ el.sendCookies.addEventListener('click', async () => {
 // ── Sending the page ────────────────────────────────────────────────────────
 // Quality is a video-resolution filter; it does nothing once yt-dlp is
 // extracting audio only, so there's no point showing it for MP3.
-el.format.addEventListener('change', () => { el.quality.hidden = el.format.value === 'mp3'; });
+el.format.addEventListener('change', () => {
+  el.quality.hidden = el.format.value === 'mp3';
+  chrome.storage.local.set({ ytFormat: el.format.value });
+});
+el.quality.addEventListener('change', () => chrome.storage.local.set({ ytQuality: el.quality.value }));
 
 el.send.addEventListener('click', async () => {
   el.send.disabled = true;
-  setStatus('Sending…');
+  setStatus('');
   const useDetected = !el.mediaDetect.hidden && el.mediaUse.value === 'direct' && capturedMediaUrl;
   const options = {};
   if (useDetected) {
@@ -192,8 +207,8 @@ el.send.addEventListener('click', async () => {
     result = { ok: false, reason: 'error' };
   }
   if (result?.ok) {
-    setStatus('Sent to Foldreel.', 'ok');
-    setTimeout(() => window.close(), 900);
+    el.send.textContent = 'Sent';
+    setTimeout(() => window.close(), 700);
     return;
   }
   setStatus(failureText(result), 'bad');
@@ -219,12 +234,12 @@ el.pair.addEventListener('submit', async (e) => {
   }
   el.pairConnect.disabled = false;
   if (!ok) {
-    setStatus("Couldn't connect. Make sure Foldreel is running and the code is current.", 'bad');
+    setStatus('Wrong code, or Foldreel is closed', 'bad');
     return;
   }
   await chrome.storage.local.set({ secret });
   el.pairCode.value = '';
-  setStatus('Connected.', 'ok');
+  setStatus('');
   refreshConnection();
 });
 
@@ -250,11 +265,12 @@ async function init() {
   el.pageTitle.textContent = sendable ? (tab?.title || currentHost) : 'This page can’t be sent';
   el.url.textContent = sendable ? currentUrl : 'Open a regular website first.';
   el.send.disabled = !sendable;
-  el.siteHeading.textContent = currentHost ? `On ${currentHost}` : 'This site';
-  el.hoverSite.disabled = !sendable;
-  el.popupsSite.disabled = !sendable;
+  el.siteHeading.textContent = currentHost || 'This page';
   currentTabId = tab?.id ?? null;
   el.ytRow.hidden = !isYoutube(currentUrl);
+  const saved = await chrome.storage.local.get({ ytQuality: 'best', ytFormat: 'mp4' });
+  if ([...el.quality.options].some((o) => o.value === saved.ytQuality)) el.quality.value = saved.ytQuality;
+  if ([...el.format.options].some((o) => o.value === saved.ytFormat)) el.format.value = saved.ytFormat;
   el.quality.hidden = el.format.value === 'mp3';
 
   if (tab?.id != null) {
@@ -267,8 +283,11 @@ async function init() {
     }
   }
 
-  if (sendable) { refreshHover(); refreshPopups(); }
+  refreshHover();
+  refreshPopups();
   refreshConnection();
+  // A change made on the settings page, or in another popup, shows up here too.
+  chrome.storage.onChanged.addListener((_changes, area) => { if (area === 'local') { refreshHover(); refreshPopups(); } });
 }
 
 init();

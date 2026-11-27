@@ -399,6 +399,12 @@ function createWindow() {
     title: 'Foldreel',
     icon: WINDOW_ICON_PATH,
     backgroundColor: '#0a0a0a',
+    // On Windows the title bar is hidden and the page draws its own strip; Windows still draws the
+    // minimise / maximise / close buttons over it (so snap layouts and the usual shortcuts keep working).
+    ...(process.platform === 'win32' ? {
+      titleBarStyle: 'hidden',
+      titleBarOverlay: { color: '#0f0f11', symbolColor: '#e8e6ea', height: 40 },
+    } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -451,6 +457,14 @@ function createTray() {
 }
 
 // ── IPC ─────────────────────────────────────────────────────────────────────
+// The page tells the window which colours its top strip has, so the buttons on it follow the theme.
+ipcMain.handle('set-titlebar', (_, o = {}) => {
+  if (process.platform !== 'win32' || !mainWindow || mainWindow.isDestroyed()) return false;
+  const ok = (c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c);
+  if (!ok(o.color) || !ok(o.symbolColor)) return false;
+  try { mainWindow.setTitleBarOverlay({ color: o.color, symbolColor: o.symbolColor, height: 40 }); return true; } catch { return false; }
+});
+
 ipcMain.handle('select-folder', async (_, opts = {}) => {
   const res = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory'],

@@ -181,3 +181,7 @@
 .list > * + * { border-top: 1px solid hsl(var(--border)); }
 .list > * { border-bottom: 0 !important; }
 .col-head { font-size: 11px; font-weight: 500; color: hsl(var(--muted-foreground)); }
+
+/* The desktop app's top strip: dragging it moves the window. Anything clickable placed on it needs .app-no-drag. */
+.app-drag { -webkit-app-region: drag; }
+.app-no-drag { -webkit-app-region: no-drag; }

@@ -493,6 +493,7 @@ CREATE TABLE IF NOT EXISTS lib_files (
     fhash    TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS lib_dirs  (rel TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS lib_checks (path TEXT PRIMARY KEY, size INTEGER DEFAULT 0, mtime REAL DEFAULT 0, deep INTEGER DEFAULT 0, ok INTEGER DEFAULT 1, reason TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS lib_favs  (path TEXT PRIMARY KEY, added_at TEXT);
 CREATE TABLE IF NOT EXISTS lib_tags  (path TEXT NOT NULL, tag TEXT NOT NULL COLLATE NOCASE, PRIMARY KEY (path, tag));
 CREATE TABLE IF NOT EXISTS lib_meta  (path TEXT PRIMARY KEY, site TEXT DEFAULT '', creator TEXT DEFAULT '', series TEXT DEFAULT '');
@@ -4546,6 +4547,187 @@ def library_duplicates(limit: int = Query(300, ge=1, le=2000)):
         out.append({"size": size, "files": [_lib_item(i) for i in items]})
     out.sort(key=lambda x: x["size"] * (len(x["files"]) - 1), reverse=True)
     return {"groups": out[:limit], "group_count": len(out), "wasted": wasted}
+
+
+# ── corrupted files ─────────────────────────────────────────────────────────
+# A picture that stops half way, a video that was cut short or never finished downloading. Results are
+# kept per file (with its size and time, so a changed file is looked at again) and a scan only visits what
+# it has not seen. The quick check reads a picture fully, asks ffprobe about a video and decodes its first
+# and last seconds; the deep check decodes the whole video.
+_corrupt_lock = threading.Lock()
+_corrupt_state: Dict = {"running": False, "cancel": False, "done": 0, "total": 0, "deep": False, "finished_at": 0.0}
+
+
+def _ff_decode(args: List[str], timeout: float) -> Optional[str]:
+    """None when ffmpeg decodes the input cleanly, else the first line it complained about."""
+    ff = _ffmpeg_bin()
+    if not ff:
+        return None  # nothing to judge with: never call a file broken for that
+    try:
+        r = subprocess.run([ff, "-v", "error", "-xerror", "-nostdin", *args], capture_output=True, timeout=timeout,
+                           creationflags=CREATE_NO_WINDOW)
+    except subprocess.TimeoutExpired:
+        return None  # too slow to say; leave it unflagged
+    except OSError:
+        return None
+    if r.returncode == 0:
+        return None
+    lines = [ln.strip() for ln in r.stderr.decode("utf-8", "replace").splitlines() if ln.strip()]
+    return (lines[0] if lines else "could not be decoded")[:160]
+
+
+def _check_image(path: str) -> str:
+    """'' when the picture opens and decodes completely, else why not."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return ""
+    try:
+        _ensure_heif_opener()
+    except Exception:
+        pass
+    try:
+        with Image.open(path) as im:
+            im.load()
+        return ""
+    except Image.DecompressionBombError:
+        return ""  # enormous, not broken
+    except Image.UnidentifiedImageError:
+        # A format Pillow does not read: let ffmpeg decide before calling it broken.
+        err = _ff_decode(["-i", path, "-frames:v", "1", "-f", "null", "-"], 30)
+        return "Not a readable picture" if err else ""
+    except Exception as e:  # noqa: BLE001 - any decode failure is the answer
+        msg = str(e).lower()
+        if "truncated" in msg:
+            return "The file is cut short"
+        return ("Damaged: " + str(e))[:160]
+
+
+def _check_video(path: str, deep: bool) -> str:
+    """'' when the video looks whole, else why not."""
+    probe = tool_path("ffprobe") or shutil.which("ffprobe")
+    duration = 0.0
+    if probe:
+        try:
+            r = subprocess.run([probe, "-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", path],
+                               capture_output=True, timeout=30, creationflags=CREATE_NO_WINDOW)
+        except (subprocess.TimeoutExpired, OSError):
+            return ""
+        if r.returncode != 0:
+            return "Can not be opened (unfinished or damaged)"
+        try:
+            info = json.loads(r.stdout.decode("utf-8", "replace") or "{}")
+        except ValueError:
+            return "Can not be opened (unfinished or damaged)"
+        if not any(st.get("codec_type") == "video" for st in info.get("streams", [])):
+            return "Has no picture"
+        try:
+            duration = float((info.get("format") or {}).get("duration") or 0)
+        except (TypeError, ValueError):
+            duration = 0.0
+    if deep:
+        err = _ff_decode(["-i", path, "-f", "null", "-"], 1800)
+        return ("Damaged: " + err) if err else ""
+    err = _ff_decode(["-t", "3", "-i", path, "-f", "null", "-"], 60)
+    if err:
+        return "Damaged: " + err
+    if duration > 8:
+        err = _ff_decode(["-sseof", "-3", "-i", path, "-f", "null", "-"], 60)
+        if err:
+            return "Damaged near the end: " + err
+    return ""
+
+
+def _check_file(path: str, kind: str, size: int, deep: bool) -> str:
+    if size <= 0:
+        return "Empty file"
+    return _check_image(path) if kind == "image" else _check_video(path, deep)
+
+
+def _corrupt_scan(deep: bool) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    st = _corrupt_state
+    try:
+        _library_ensure()
+        rows = db_all(
+            "SELECT f.path, f.kind, f.size, f.mtime, c.size AS csize, c.mtime AS cmtime, c.deep AS cdeep "
+            "FROM lib_files f LEFT JOIN lib_checks c ON c.path = f.path")
+        todo = []
+        for r in rows:
+            seen = r["csize"] is not None and r["csize"] == r["size"] and r["cmtime"] == r["mtime"]
+            if seen and (not deep or r["kind"] != "video" or r["cdeep"]):
+                continue
+            todo.append(r)
+        st.update(total=len(todo), done=0, deep=deep)
+        writes: List[tuple] = []
+
+        def flush():
+            if not writes:
+                return
+            with _db_lock:
+                c = _conn()
+                try:
+                    c.executemany(
+                        "INSERT OR REPLACE INTO lib_checks (path, size, mtime, deep, ok, reason) VALUES (?,?,?,?,?,?)", writes)
+                    c.commit()
+                finally:
+                    c.close()
+            writes.clear()
+
+        def one(r):
+            if st["cancel"]:
+                return None
+            reason = _check_file(r["path"], r["kind"], r["size"], deep)
+            return (r["path"], r["size"], r["mtime"], 1 if deep else 0, 0 if reason else 1, reason)
+
+        with ThreadPoolExecutor(max_workers=max(1, min(3, (os.cpu_count() or 2) - 1))) as pool:
+            for res in pool.map(one, todo):
+                if res:
+                    writes.append(res)
+                st["done"] += 1
+                if len(writes) >= 25:
+                    flush()
+        flush()
+    except Exception:  # noqa: BLE001 - a scan that fails just ends; what it found stays
+        log.exception("corrupt scan failed")
+    finally:
+        st.update(running=False, cancel=False, finished_at=time.time())
+        _lib_state["version"] += 1
+
+
+class CorruptScanIn(BaseModel):
+    deep: bool = False
+
+
+@api.get("/library/corrupted")
+def library_corrupted(limit: int = Query(500, ge=1, le=5000)):
+    rows = db_all(
+        f"SELECT {_LIB_COLS}, c.reason AS reason FROM lib_files f JOIN lib_checks c ON c.path = f.path "
+        "WHERE c.ok = 0 AND c.size = f.size AND c.mtime = f.mtime ORDER BY f.mtime DESC LIMIT ?", (limit,))
+    checked = db_one("SELECT COUNT(*) AS n FROM lib_checks c JOIN lib_files f ON f.path = c.path "
+                     "WHERE c.size = f.size AND c.mtime = f.mtime")["n"]
+    return {
+        "files": [{**_lib_item(r), "reason": r["reason"]} for r in rows],
+        "checked": checked,
+        "running": _corrupt_state["running"], "done": _corrupt_state["done"], "total": _corrupt_state["total"],
+        "deep": _corrupt_state["deep"], "finished_at": _corrupt_state["finished_at"],
+    }
+
+
+@api.post("/library/corrupted/scan")
+def library_corrupted_scan(body: CorruptScanIn):
+    with _corrupt_lock:
+        if _corrupt_state["running"]:
+            return {"started": False}
+        _corrupt_state.update(running=True, cancel=False, done=0, total=0, deep=body.deep)
+    threading.Thread(target=_corrupt_scan, args=(body.deep,), name="corrupt-scan", daemon=True).start()
+    return {"started": True}
+
+
+@api.post("/library/corrupted/cancel")
+def library_corrupted_cancel():
+    _corrupt_state["cancel"] = True
+    return {"ok": True}
 
 
 def _ffmpeg_bin() -> Optional[str]:

@@ -26,7 +26,9 @@
   function apply() {
     const root = document.documentElement;
     if (!root) { setTimeout(apply, 10); return; }
-    root.setAttribute(ATTR, enabled && !allowed.includes(siteHost) ? 'on' : 'off');
+    // "example.com" in the list also covers m.example.com and every other subdomain.
+    const isAllowed = allowed.some((h) => siteHost === h || siteHost.endsWith(`.${h}`));
+    root.setAttribute(ATTR, enabled && !isAllowed ? 'on' : 'off');
   }
 
   chrome.storage.local.get({ popupsEnabled: true, popupsAllowedHosts: [] }).then((v) => {

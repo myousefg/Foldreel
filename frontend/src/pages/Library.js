@@ -17,6 +17,7 @@ import { EntryCell, DetailsHeader, GroupHead } from '@/components/library/Cells'
 import LibrarySidebar from '@/components/library/LibrarySidebar';
 import DetailsPane from '@/components/library/DetailsPane';
 import Duplicates from '@/components/library/Duplicates';
+import Corrupted from '@/components/library/Corrupted';
 import { PermanentDeleteDialog, TagsDialog } from '@/components/library/Dialogs';
 import { useI18n } from '@/context/I18nProvider';
 import { useSettings } from '@/context/SettingsProvider';
@@ -64,6 +65,7 @@ export default function Library() {
   const [params, setParams] = useSearchParams();
   const folder = params.get('folder') || '';
   const place = params.get('place') || 'all';
+  const special = place === 'duplicates' || place === 'corrupted'; // pages of their own, not a list of files
   const tag = params.get('tag') || '';
   const flat = place !== 'all' || !!tag;
   const go = useCallback((next) => {
@@ -106,11 +108,11 @@ export default function Library() {
   const searchRef = useRef(null);
 
   const query = useMemo(() => ({
-    folder, view: flat ? 'all' : scope, place: place === 'duplicates' ? 'all' : place, tag, kind, sort, order,
+    folder, view: flat ? 'all' : scope, place: special ? 'all' : place, tag, kind, sort, order,
     group: flat || scope === 'all' ? group : 'none', q: dq,
-  }), [folder, flat, scope, place, tag, kind, sort, order, group, dq]);
+  }), [folder, flat, scope, place, special, tag, kind, sort, order, group, dq]);
 
-  const data = useLibraryData(query, place !== 'duplicates');
+  const data = useLibraryData(query, !special);
   const meta = data.meta;
   // The remembered folder may have been moved or deleted since: fall back to the top.
   useEffect(() => {
@@ -649,7 +651,7 @@ export default function Library() {
       ? { count: meta.total, size: formatSize(meta.total_size) }
       : { count: meta.scope_count, size: formatSize(meta.scope_size) })
     : '';
-  const placeTitle = place === 'favorites' ? t('library.place.favorites') : place === 'recent' ? t('library.place.recent') : place === 'duplicates' ? t('library.place.duplicates') : tag ? `#${tag}` : '';
+  const placeTitle = place === 'favorites' ? t('library.place.favorites') : place === 'recent' ? t('library.place.recent') : place === 'duplicates' ? t('library.place.duplicates') : place === 'corrupted' ? t('library.place.corrupted') : tag ? `#${tag}` : '';
   const canSortHeader = mode === 'details';
   const onSortHeader = (key) => {
     if (sort === key) setOrder(order === 'asc' ? 'desc' : 'asc');
@@ -661,7 +663,7 @@ export default function Library() {
 
   return (
     <div className="flex flex-col gap-3" style={{ height: 'calc(100vh - 7.25rem)' }} data-testid="library-page">
-      <PageSubtitle>{place === 'duplicates' ? '' : summary}</PageSubtitle>
+      <PageSubtitle>{special ? '' : summary}</PageSubtitle>
       <PageActions>
         {isElectron && meta?.root && (
           <Button variant="outline" size="sm" className="h-8" onClick={() => window.electronAPI.openPath(meta.root)}>
@@ -706,7 +708,7 @@ export default function Library() {
         </Button>
       </div>
 
-      {place !== 'duplicates' && (
+      {!special && (
         <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
           <Button variant="outline" size="sm" className="h-8" onClick={newFolder} data-testid="library-new-folder"><FolderPlus className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('library.newFolder')}</Button>
           {!flat && (
@@ -754,7 +756,15 @@ export default function Library() {
         )}
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-          {place === 'duplicates' ? (
+          {place === 'corrupted' ? (
+            <div className="flex-1 min-h-0 overflow-y-auto pe-1">
+              <Corrupted
+                version={tree?.version} t={t} fmt={fmt}
+                onDelete={(paths, after) => actions.remove(paths, paths.map((p) => p.split(/[\/]/).pop()), { after })}
+                onOpen={(files, index) => setLight({ files, index })}
+              />
+            </div>
+          ) : place === 'duplicates' ? (
             <div className="flex-1 min-h-0 overflow-y-auto pe-1">
               <Duplicates
                 version={tree?.version} t={t} fmt={fmt}
@@ -788,7 +798,7 @@ export default function Library() {
                       cells.push(
                         <EntryCell
                           key={idx} idx={idx} entry={en} mode={mode} geo={geo} t={t} fmt={fmt} handlers={handlers}
-                          selected={!!en && sel.has(en.path)} selecting={selectMode || sel.size > 0} cursor={cursor === idx}
+                          selected={!!en && sel.has(en.path)} selecting={selectMode} cursor={cursor === idx}
                           cut={!!en && cutSet.has(en.path)} renaming={renaming === idx} dropTarget={dropOn === idx}
                         />,
                       );
@@ -814,7 +824,7 @@ export default function Library() {
 
           {/* status bar */}
           <div className="shrink-0 flex items-center gap-3 h-8 text-xs text-muted-foreground border-t border-border mt-1 pt-1" role="status" data-testid="library-status">
-            {place !== 'duplicates' && <span className="tabular-nums">{t('library.itemsCount', { count: F + total })}</span>}
+            {!special && <span className="tabular-nums">{t('library.itemsCount', { count: F + total })}</span>}
             {sel.size > 0 && (
               <span className="tabular-nums" data-testid="library-selected-count">
                 {t('library.selected', { count: sel.size })}{selectedBytes != null && selectedBytes > 0 ? ` · ${formatSize(selectedBytes)}` : ''}
@@ -825,7 +835,7 @@ export default function Library() {
           </div>
         </div>
 
-        {showDetails && place !== 'duplicates' && (
+        {showDetails && !special && (
           <div className="w-72 shrink-0 min-h-0">
             <DetailsPane
               entry={singleEntry} count={sel.size} bytes={selectedBytes} t={t} fmt={fmt}
@@ -841,7 +851,7 @@ export default function Library() {
       </div>
 
       {/* what you can do with the selection */}
-      {(sel.size > 0 || selectMode) && place !== 'duplicates' && (
+      {(sel.size > 1 || selectMode) && !special && (
         <div className="fixed bottom-10 inset-x-0 z-40 flex justify-center ps-52 pointer-events-none">
           <div role="toolbar" aria-label={t('library.selectionBar')} data-testid="library-selection-bar"
             className="pointer-events-auto flex items-center gap-1 rounded-xl border border-border bg-card px-2 py-1.5 surface-elevated">

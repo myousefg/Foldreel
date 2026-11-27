@@ -24,6 +24,7 @@
   #pair p { color: var(--muted); margin-bottom: 10px; }
   #pair .btn { margin-top: 8px; }
 
+  .item.slim { padding-top: 9px; padding-bottom: 9px; }
   .status { margin-top: 10px; }
   footer { display: flex; align-items: center; gap: 14px; padding: 8px 16px 14px; font-size: 12px; }
   footer .spacer { flex: 1; }
@@ -39,7 +40,7 @@
 
   <main>
     <form id="pair" hidden>
-      <p>In Foldreel, open Settings, then Browser extension, turn it on, and paste the pairing code.</p>
+      <p>In Foldreel, open Advanced, then Extension, and press Link. Or paste the pairing code here.</p>
       <label class="sr" for="pair-code" style="position:absolute;left:-9999px">Pairing code</label>
       <input id="pair-code" type="text" class="mono" placeholder="Pairing code" autocomplete="off" spellcheck="false">
       <button id="pair-connect" class="btn primary block" type="submit">Connect</button>
@@ -52,10 +53,10 @@
       </div>
 
       <div id="media-detect" class="field" hidden>
-        <label for="media-use">Link to send</label>
+        <label for="media-use">Send</label>
         <select id="media-use">
-          <option value="page" selected>This page's link</option>
-          <option value="direct">Detected direct file link</option>
+          <option value="page" selected>This page</option>
+          <option value="direct">The video file found on it</option>
         </select>
         <code id="media-url"></code>
       </div>
@@ -80,8 +81,8 @@
       <div class="list" role="group" aria-labelledby="site-heading">
         <div class="item">
           <div class="item-text">
-            <span class="item-title" id="hover-title">Floating download button</span>
-            <span class="item-desc" id="hover-desc">Shown on images and videos</span>
+            <span class="item-title" id="hover-title">Floating button</span>
+            <span class="item-desc" id="hover-desc"></span>
           </div>
           <label class="switch">
             <input id="hover-site" type="checkbox" role="switch" aria-labelledby="hover-title" aria-describedby="hover-desc">
@@ -90,8 +91,8 @@
         </div>
         <div class="item">
           <div class="item-text">
-            <span class="item-title" id="popups-title">Block pop-ups and hidden links</span>
-            <span class="item-desc" id="popups-desc">On for this site</span>
+            <span class="item-title" id="popups-title">Pop-up blocker</span>
+            <span class="item-desc" id="popups-desc"></span>
           </div>
           <label class="switch">
             <input id="popups-site" type="checkbox" role="switch" aria-labelledby="popups-title" aria-describedby="popups-desc">
@@ -104,6 +105,24 @@
             <span class="item-desc" id="cookie-desc">Checking…</span>
           </div>
           <button id="send-cookies" class="btn small" type="button" aria-describedby="cookie-desc">Add</button>
+        </div>
+      </div>
+
+      <h2 id="all-heading" class="group-title">Every site</h2>
+      <div class="list" role="group" aria-labelledby="all-heading">
+        <div class="item slim">
+          <span class="item-title" id="hover-all-title">Floating button</span>
+          <label class="switch">
+            <input id="hover-all" type="checkbox" role="switch" aria-labelledby="hover-all-title">
+            <span class="track" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div class="item slim">
+          <span class="item-title" id="popups-all-title">Pop-up blocker</span>
+          <label class="switch">
+            <input id="popups-all" type="checkbox" role="switch" aria-labelledby="popups-all-title">
+            <span class="track" aria-hidden="true"></span>
+          </label>
         </div>
       </div>
     </section>

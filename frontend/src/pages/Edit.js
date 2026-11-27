@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  Camera, ChevronDown, Crop, FileVideo, FolderOpen, Gauge, ImagePlus, Keyboard, Loader2, Music, Pause, Play, Redo2, Repeat,
+  Camera, Crop, FileVideo, FolderOpen, Gauge, ImagePlus, Keyboard, Loader2, Music, Pause, Play, Plus, Redo2, Repeat,
   RotateCw, Save, Scissors, SkipBack, SkipForward, SlidersHorizontal, StepBack, StepForward, Type, Undo2, Volume2, Wand2, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,7 @@ import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Progress } from '@/components/ui/progress';
-import { PageActions } from '@/components/PageHeader';
+import { PageActions, useWideLayout } from '@/components/PageHeader';
 import DropOverlay from '@/components/DropOverlay';
 import CropBox from '@/components/edit/CropBox';
 import TextLayer from '@/components/edit/TextLayer';
@@ -219,20 +219,27 @@ export default function Edit() {
   const filmUrl = useMemo(() => (info?.kind === 'video' ? editApi.filmstripUrl(path, Math.min(40, 14 * Math.ceil(zoom)), 56) : ''), [info, path, zoom]);
   const waveUrl = useMemo(() => (info?.has_audio ? editApi.waveformUrl(path, 1400, info.kind === 'audio' ? 80 : 40) : ''), [info, path]);
 
+  useWideLayout(!!info);
+
   // ── nothing open yet ────────────────────────────────────────────────────────
   if (!info) {
     return (
-      <div onDragOver={(e) => e.preventDefault()} onDrop={onDrop} data-testid="edit-empty">
+      <div className="space-y-8" onDragOver={(e) => e.preventDefault()} onDrop={onDrop} data-testid="edit-empty">
         <DropOverlay />
-        <div className="w-full rounded-xl border border-dashed border-border py-24 flex flex-col items-center gap-4 text-center">
-          <span className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-            {loading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" aria-hidden="true" /> : <Scissors className="w-5 h-5 text-muted-foreground" aria-hidden="true" />}
-          </span>
-          <p className="text-sm font-medium">{t('edit.empty')}</p>
-          <Button onClick={browse} disabled={!isElectron || loading} data-testid="edit-choose">
-            <ImagePlus className="w-4 h-4 me-2" aria-hidden="true" /> {t('edit.choose')}
+        <PageActions>
+          <Button variant="outline" size="sm" className="h-8" onClick={browse} disabled={!isElectron || loading} data-testid="edit-choose">
+            <Plus className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('edit.choose')}
           </Button>
-        </div>
+        </PageActions>
+        <button
+          type="button" onClick={browse} disabled={!isElectron || loading}
+          className="w-full rounded-xl border border-dashed border-border py-14 flex flex-col items-center gap-3 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+            {loading ? <Loader2 className="w-[18px] h-[18px] animate-spin text-muted-foreground" aria-hidden="true" /> : <Scissors className="w-[18px] h-[18px] text-muted-foreground" aria-hidden="true" />}
+          </span>
+          <span className="text-sm font-medium">{t('edit.empty')}</span>
+        </button>
       </div>
     );
   }
@@ -258,14 +265,57 @@ export default function Edit() {
   const stillOut = kind === 'image' || ['jpg', 'png', 'webp'].includes(ops.format);
 
   return (
-    <div className="flex flex-col gap-3" style={{ height: 'calc(100vh - 7.25rem)' }} onDragOver={(e) => e.preventDefault()} onDrop={onDrop} data-testid="edit-page">
+    <div className="flex flex-col gap-3" style={{ height: 'calc(100vh - 7.25rem - var(--titlebar-h, 0rem))' }} onDragOver={(e) => e.preventDefault()} onDrop={onDrop} data-testid="edit-page">
       <ToneDefs />
       <DropOverlay />
       <PageActions>
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={undo} disabled={!canUndo} title={`${t('edit.undo')} (Ctrl+Z)`} aria-label={t('edit.undo')} data-testid="edit-undo"><Undo2 className="w-4 h-4" aria-hidden="true" /></Button>
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={redo} disabled={!canRedo} title={`${t('edit.redo')} (Ctrl+Shift+Z)`} aria-label={t('edit.redo')} data-testid="edit-redo"><Redo2 className="w-4 h-4" aria-hidden="true" /></Button>
-        <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" onClick={() => { reset(true); setAspect('free'); }} disabled={!isEdited(ops, info)} data-testid="edit-reset">{t('edit.resetAll')}</Button>
-        <Button variant="outline" size="sm" className="h-8" onClick={browse} disabled={!isElectron || running}>{t('edit.change')}</Button>
+        <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" onClick={() => { reset(true); setAspect('free'); }} disabled={!isEdited(ops, info)} data-testid="edit-reset">
+          <X className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('edit.resetAll')}
+        </Button>
+        <Button variant="outline" size="sm" className="h-8" onClick={browse} disabled={!isElectron || running} data-testid="edit-change">
+          <Plus className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('edit.change')}
+        </Button>
+        <Popover open={exportOpen} onOpenChange={setExportOpen}>
+          <PopoverTrigger asChild>
+            <Button size="sm" className="h-8" disabled={running} data-testid="edit-export-open">
+              {running ? <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" /> : <Save className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />}
+              {t('edit.export.save')}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-72 space-y-3" data-testid="edit-export-panel">
+              <div className="space-y-1.5">
+                <span className="text-xs font-medium">{t('edit.export.format')}</span>
+                <Select value={ops.format} onValueChange={(v) => set({ format: v })}>
+                  <SelectTrigger className="h-9 text-sm" aria-label={t('edit.export.format')} data-testid="edit-format"><SelectValue /></SelectTrigger>
+                  <SelectContent>{formats.map((f) => <SelectItem key={f} value={f}>{t(`edit.format.${f}`)}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              {kind !== 'audio' && ops.format !== 'mp3' && (
+                <div className="space-y-1.5">
+                  <span className="text-xs font-medium">{t('edit.export.size')}</span>
+                  <Select value={String(ops.height ?? 'orig')} onValueChange={(v) => set({ height: v === 'orig' ? null : Number(v) })}>
+                    <SelectTrigger className="h-9 text-sm" aria-label={t('edit.export.size')} data-testid="edit-size"><SelectValue /></SelectTrigger>
+                    <SelectContent>{SIZES.map((h) => <SelectItem key={h ?? 'orig'} value={String(h ?? 'orig')}>{h ? `${h}p` : t('edit.size.orig')}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              )}
+              {ops.format !== 'png' && (
+                <div className="space-y-1.5">
+                  <span className="text-xs font-medium">{t('edit.export.quality')}</span>
+                  <Select value={ops.quality} onValueChange={(v) => set({ quality: v })}>
+                    <SelectTrigger className="h-9 text-sm" aria-label={t('edit.export.quality')} data-testid="edit-quality"><SelectValue /></SelectTrigger>
+                    <SelectContent>{['high', 'balanced', 'small'].map((q) => <SelectItem key={q} value={q}>{t(`edit.quality.${q}`)}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground tabular-nums" data-testid="edit-summary">
+                {kind !== 'audio' && ops.format !== 'mp3' ? `${out.w} × ${out.h}` : ''}{!stillOut && length ? `${kind !== 'audio' && ops.format !== 'mp3' ? ' · ' : ''}${formatTime(length)}` : ''}
+              </p>
+              <Button className="w-full" onClick={() => startExport()} data-testid="edit-export"><Save className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('edit.export.save')}</Button>
+          </PopoverContent>
+        </Popover>
       </PageActions>
 
       {/* file and save bar */}
@@ -294,42 +344,6 @@ export default function Edit() {
                 <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => load(job.out_path)}>{t('edit.export.editCopy')}</Button>
               </div>
             )}
-            <Popover open={exportOpen} onOpenChange={setExportOpen}>
-              <PopoverTrigger asChild>
-                <Button size="sm" className="h-8" data-testid="edit-export-open"><Save className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('edit.export.save')}<ChevronDown className="w-3 h-3 ms-1.5 opacity-70" aria-hidden="true" /></Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 space-y-3" data-testid="edit-export-panel">
-                <div className="space-y-1.5">
-                  <span className="text-xs font-medium">{t('edit.export.format')}</span>
-                  <Select value={ops.format} onValueChange={(v) => set({ format: v })}>
-                    <SelectTrigger className="h-9 text-sm" aria-label={t('edit.export.format')} data-testid="edit-format"><SelectValue /></SelectTrigger>
-                    <SelectContent>{formats.map((f) => <SelectItem key={f} value={f}>{t(`edit.format.${f}`)}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                {kind !== 'audio' && ops.format !== 'mp3' && (
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-medium">{t('edit.export.size')}</span>
-                    <Select value={String(ops.height ?? 'orig')} onValueChange={(v) => set({ height: v === 'orig' ? null : Number(v) })}>
-                      <SelectTrigger className="h-9 text-sm" aria-label={t('edit.export.size')} data-testid="edit-size"><SelectValue /></SelectTrigger>
-                      <SelectContent>{SIZES.map((h) => <SelectItem key={h ?? 'orig'} value={String(h ?? 'orig')}>{h ? `${h}p` : t('edit.size.orig')}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                )}
-                {ops.format !== 'png' && (
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-medium">{t('edit.export.quality')}</span>
-                    <Select value={ops.quality} onValueChange={(v) => set({ quality: v })}>
-                      <SelectTrigger className="h-9 text-sm" aria-label={t('edit.export.quality')} data-testid="edit-quality"><SelectValue /></SelectTrigger>
-                      <SelectContent>{['high', 'balanced', 'small'].map((q) => <SelectItem key={q} value={q}>{t(`edit.quality.${q}`)}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <p className="text-xs text-muted-foreground tabular-nums" data-testid="edit-summary">
-                  {kind !== 'audio' && ops.format !== 'mp3' ? `${out.w} × ${out.h}` : ''}{!stillOut && length ? `${kind !== 'audio' && ops.format !== 'mp3' ? ' · ' : ''}${formatTime(length)}` : ''}
-                </p>
-                <Button className="w-full" onClick={() => startExport()} data-testid="edit-export"><Save className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />{t('edit.export.save')}</Button>
-              </PopoverContent>
-            </Popover>
           </>
         )}
       </div>

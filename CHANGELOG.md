@@ -22,6 +22,19 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   - Save as MP4, WebM, GIF, MP3 (sound only), or JPG, PNG and WebP for photos, at High, Balanced or Smaller
     quality and at 2160p down to 480p, with progress and Cancel. Undo and redo, and Reset all.
   - Open a file from the Library with right-click, Edit.
+- **A top strip instead of the Windows title bar.** The app's name and icon sit in a slim bar across the top,
+  merged with the window; Windows still draws the minimise, maximise and close buttons on it (snap layouts work),
+  coloured to match the theme. Drag the bar to move the window, double-click it to maximise.
+- **Corrupted** in the Library, below Duplicates, looks for pictures that stop half way, videos that were cut
+  short or never finished downloading, and empty files. It checks what it has not seen yet each time you open it
+  (a changed file is checked again), shows why each file was flagged, and lets you delete them. An optional full
+  check plays every video to the end.
+- **Extension.** The floating button now sends what you pointed at: for a video, the post it belongs to (a clip in
+  a TikTok or Instagram grid, a tweet in a feed), else the video file, else the page; for a picture, the file
+  itself (full size on X). Hover it to see the link. Switches for every site and for the current site sit
+  together in the popup, a site setting covers its subdomains (it used to miss `m.` and other subdomains), the
+  YouTube quality and format are remembered, and right-clicking a picture or video can send it. Settings text is
+  shorter.
 - **Direct links on Downloads.** A pasted link to a file (a picture, video or sound) says "Direct file link
   detected", and a video stream link (`.m3u8`, `.mpd`) is downloaded with the video engine, joined into one video.
 - **Watch** can save each watch to its own folder (a Save to menu on the add bar and on every row), shows the creator's own picture when the site gives one, a click on the link text copies it, and the
@@ -32,6 +45,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - **Engine** (Advanced) is rebuilt: Downloads at once, Speed limit, Wait between requests and Retries are menus
   of the usual choices instead of typed codes, "Files per download" has Newest 10 to 200 or a custom range, and
   there is Reset to defaults.
+- In the Library, one click only selects the file you clicked, with no circles and no extra bar. Circles appear in
+  select mode, which you enter with a long press or by dragging a box.
 - In the Library, a video now plays inside Foldreel when you double-click it. Hold Ctrl and drag to slide across
   many files and select them, even starting on a file.
 - **Settings** is rebuilt like Advanced: Files has the download folder with a Change button, folder layout and

@@ -46,7 +46,7 @@ $('pair-form').addEventListener('submit', async (e) => {
   if (!secret) return;
   setConn('', 'Checking…');
   if (await ping(secret) !== 'ok') {
-    setConn('bad', "Couldn't connect. Is Foldreel running, and is the code current?");
+    setConn('bad', 'Wrong code, or Foldreel is closed');
     return;
   }
   await chrome.storage.local.set({ secret });
@@ -91,12 +91,12 @@ async function renderPrefs() {
   $('hover-enabled').checked = hoverEnabled !== false;
   renderHosts(hostsEl, hoverHiddenHosts, {
     button: 'Show again', label: (h) => `Show the button on ${h} again`,
-    empty: 'None. Use the toggle in the toolbar popup on any site.', onClick: (h) => Prefs.setHostHidden(h, false),
+    empty: 'None', onClick: (h) => Prefs.setHostHidden(h, false),
   });
   $('popups-enabled').checked = popupsEnabled !== false;
   renderHosts($('allowed-hosts'), popupsAllowedHosts, {
     button: 'Block again', label: (h) => `Block pop-ups on ${h} again`,
-    empty: 'None. Use the toggle in the toolbar popup on any site.', onClick: (h) => Prefs.setPopupsAllowed(h, false),
+    empty: 'None', onClick: (h) => Prefs.setPopupsAllowed(h, false),
   });
 }
 

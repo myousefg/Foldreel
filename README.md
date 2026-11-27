@@ -47,7 +47,7 @@ Four tools in one app, sharing one queue, library, and set of settings:
 - **Full albums at full resolution.** Foldreel fetches the original files, not the compressed thumbnails a feed shows.
 - **Live queue.** Progress for each download, with a streaming log.
 - **Preview before you commit.** See what a link will download before it downloads anything.
-- **Library.** Browse your download folder like a file manager: folders, five views, search, drag and drop, favorites, tags, and a duplicates finder. Delete goes to the Recycle Bin, or permanently if you choose.
+- **Library.** Browse your download folder like a file manager: folders, five views, search, drag and drop, favorites, tags, a duplicates finder, and a check for corrupted files. Delete goes to the Recycle Bin, or permanently if you choose.
 - **History.** Every finished download, grouped by day, with full-size previews, one click to open the folder, and one click to download it again.
 - **Built-in logins.** Cookies, username and password, or OAuth, saved per site. You set each up once.
 - **YouTube.** Pick a quality and format, audio-only included.

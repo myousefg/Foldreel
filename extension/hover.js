@@ -24,7 +24,9 @@
   const pageHost = location.hostname.toLowerCase().replace(/^www\./, '');
   let enabled = true;
   let hiddenHosts = [];
-  const isActive = () => enabled && !hiddenHosts.includes(pageHost);
+  // "example.com" in the list also covers m.example.com and every other subdomain.
+  const isHidden = () => hiddenHosts.some((h) => pageHost === h || pageHost.endsWith(`.${h}`));
+  const isActive = () => enabled && !isHidden();
 
   function hideNow() {
     clearTimeout(hideTimer);
@@ -87,19 +89,97 @@
     document.documentElement.appendChild(host);
   }
 
+  // The direct address of the hovered file, when the page gives one.
   function mediaUrlFor(el) {
     if (el.tagName === 'IMG') {
-      // data:/blob: image sources have no real per-page fallback the way a
-      // video embed's page URL does, so those just don't get a button.
       const src = el.currentSrc || el.src || '';
       return /^https?:/i.test(src) ? src : '';
     }
     if (el.tagName === 'VIDEO') {
-      if (el.currentSrc) return el.currentSrc;
-      const source = el.querySelector('source[src]');
-      return source ? source.src : (el.src || '');
+      const src = el.currentSrc || el.querySelector('source[src]')?.src || el.src || '';
+      return /^https?:/i.test(src) ? src : '';
     }
     return '';
+  }
+
+  // The address of the post a piece of media belongs to, for the sites Foldreel knows. Returns '' for
+  // anything that is not the page of one post (a profile, a feed, a search).
+  function postLink(href) {
+    let u;
+    try { u = new URL(href, location.href); } catch { return ''; }
+    if (!/^https?:$/.test(u.protocol)) return '';
+    const h = u.hostname.toLowerCase().replace(/^(www|m|mobile)\./, '');
+    const p = u.pathname;
+    let m;
+    if (/^(x|twitter)\.com$/.test(h)) return (m = p.match(/^\/[^/]+\/status\/\d+/)) ? u.origin + m[0] : '';
+    if (h === 'instagram.com') return (m = p.match(/^(?:\/[^/]+)?\/(?:p|reel|tv)\/[\w-]+/)) ? u.origin + m[0] : '';
+    if (h === 'tiktok.com') return (m = p.match(/^\/@[^/]+\/(?:video|photo)\/\d+/)) ? u.origin + m[0] : '';
+    if (h === 'youtube.com' || h === 'music.youtube.com') {
+      if (p === '/watch' && u.searchParams.get('v')) return `${u.origin}/watch?v=${u.searchParams.get('v')}`;
+      return (m = p.match(/^\/(?:shorts|live)\/[\w-]+/)) ? u.origin + m[0] : '';
+    }
+    if (h === 'youtu.be') return (m = p.match(/^\/[\w-]{6,}/)) ? u.origin + m[0] : '';
+    if (h === 'reddit.com') return (m = p.match(/^\/(?:r|user)\/[^/]+\/comments\/\w+/)) ? u.origin + m[0] : '';
+    if (h === 'pinterest.com') return (m = p.match(/^\/pin\/\d+/)) ? u.origin + m[0] : '';
+    if (h === 'bsky.app') return (m = p.match(/^\/profile\/[^/]+\/post\/\w+/)) ? u.origin + m[0] : '';
+    if (h === 'threads.net' || h === 'threads.com') return (m = p.match(/^\/@[^/]+\/post\/[\w-]+/)) ? u.origin + m[0] : '';
+    if (h === 'facebook.com') {
+      if (p === '/watch' && u.searchParams.get('v')) return `${u.origin}/watch?v=${u.searchParams.get('v')}`;
+      return (m = p.match(/^(?:\/[^/]+)?\/(?:reel|videos)\/\d+/)) ? u.origin + m[0] : '';
+    }
+    if (h === 'vimeo.com') return (m = p.match(/^\/\d+/)) ? u.origin + m[0] : '';
+    return '';
+  }
+
+  const MEDIA_FILE = /\.(?:jpe?g|png|gif|webp|avif|bmp|mp4|webm|mov|m4v|mkv)(?:[?#]|$)/i;
+  const VIDEO_POST = /\/(?:video|reel|tv|shorts|live|watch|videos)\b|[?&]v=/i;
+
+  // The post the hovered media belongs to: its own link, or the nearest card around it that holds one or
+  // two post links (a feed holds many, so a wide container is no answer).
+  function nearbyPost(el) {
+    const own = el.closest('a[href]');
+    if (own) {
+      const post = postLink(own.href);
+      if (post) return { posts: [post] };
+      if (/^https?:/i.test(own.href) && MEDIA_FILE.test(own.href)) return { file: own.href };
+    }
+    let node = el.parentElement;
+    for (let i = 0; node && i < 8; i += 1, node = node.parentElement) {
+      const found = [];
+      for (const a of node.querySelectorAll('a[href]')) {
+        const post = postLink(a.href);
+        if (post && !found.includes(post)) found.push(post);
+        if (found.length > 2) return {};
+      }
+      if (found.length) return { posts: found };
+    }
+    return {};
+  }
+
+  // What the button sends, in order of how well Foldreel can use it:
+  //   a video: the post it belongs to, else the video file itself, else the page
+  //   a photo: the photo file itself (a post can hold many, and this one was picked), unless it is the
+  //            cover of a video post, which sends the post; else the post, else the page
+  // The page counts as the post when the page is one (a watch page, a status page).
+  function resolveTarget(el) {
+    const isVideo = el.tagName === 'VIDEO';
+    const pagePost = postLink(location.href);
+    const { posts = [], file = '' } = nearbyPost(el);
+    let post = '';
+    if (pagePost && (!posts.length || posts.includes(pagePost))) post = pagePost;
+    else if (posts.length) post = posts[0];
+    let direct = mediaUrlFor(el) || file;
+    if (direct) {
+      try {
+        const u = new URL(direct);
+        // X serves a small copy by default; the same address with name=orig is the original.
+        if (u.hostname === 'pbs.twimg.com' && u.pathname.startsWith('/media/')) { u.searchParams.set('name', 'orig'); direct = u.href; }
+      } catch { /* keep the address as it is */ }
+    }
+    const coverOfVideo = !isVideo && post && VIDEO_POST.test(post);
+    if (post && (isVideo || coverOfVideo || !direct)) return { url: post, kind: 'post' };
+    if (direct) return { url: direct, kind: 'file', referer: location.href };
+    return { url: location.href, kind: 'page' };
   }
 
   function findCandidate(x, y) {
@@ -114,7 +194,9 @@
       if (el.tagName !== 'IMG' && el.tagName !== 'VIDEO') continue;
       const rect = el.getBoundingClientRect();
       if (rect.width < MIN_SIZE || rect.height < MIN_SIZE) continue;
-      if (!mediaUrlFor(el)) continue;
+      // A video always gets the button (a player streaming through a blob: has no address of its own, and
+      // then the post or the page is what gets sent); a picture needs a real address to send.
+      if (el.tagName === 'IMG' && !mediaUrlFor(el)) continue;
       return { el, rect };
     }
     return null;
@@ -125,6 +207,10 @@
     currentEl = el;
     button.classList.remove('sent', 'failed');
     button.querySelector('span').textContent = 'Foldreel';
+    const target = resolveTarget(el);
+    const what = target.kind === 'post' ? 'this post' : target.kind === 'page' ? 'this page' : el.tagName === 'VIDEO' ? 'this video' : 'this picture';
+    button.title = `Send ${what}
+${target.url}`;
     button.style.top = `${Math.max(4, rect.top + 6)}px`;
     button.style.left = `${Math.max(4, rect.right - button.offsetWidth - 6) || rect.left + 6}px`;
     // offsetWidth is 0 before first paint - correct the left position one
@@ -143,47 +229,29 @@
     }, HIDE_DELAY);
   }
 
+  const REASONS = { 'not-paired': 'Not connected', offline: 'Foldreel is closed', unauthorized: 'Reconnect' };
+
   async function onSend(e) {
     e.preventDefault();
     e.stopPropagation();
     // Only a real click. A page can call .click() on this button from its own script,
     // which would otherwise send a download to Foldreel without anyone asking.
     if (!e.isTrusted || !currentEl) return;
-    let url = mediaUrlFor(currentEl);
-    if (!url) return;
-    // Video always goes through the page URL, never the raw <video> src. A
-    // site's own extractor (gallery-dl/yt-dlp) needs the post URL to do
-    // anything site-aware - X/Twitter's "GIF" detection included, which only
-    // fires from the tweet URL - and sending the raw CDN src instead grabs
-    // the right bytes but skips that, so a "GIF" saves as a plain video.
-    //
-    // Images keep their own direct src (with a referer, since many CDNs
-    // hotlink-protect it) unless it's an in-memory blob: URL with no
-    // fetchable form. Two reasons this differs from video: a post can hold
-    // several images, and hovering one specific photo exists to grab just
-    // that one instead of the whole gallery the page URL would pull in;
-    // and the direct-src+referer path is also the fallback for a page
-    // gallery-dl/yt-dlp have no extractor for at all (a plain <img src>
-    // pointing straight at a CDN) - routing images through the page URL
-    // unconditionally would break that fallback entirely.
-    const isVideo = currentEl.tagName === 'VIDEO';
-    const isBlob = url.startsWith('blob:');
-    if (isVideo || isBlob) url = location.href;
-    const sendReferer = !isVideo && !isBlob; // direct image src still wants one
+    const target = resolveTarget(currentEl);
     let result;
     try {
       result = await chrome.runtime.sendMessage({
         type: 'send',
-        urls: [url],
-        options: sendReferer ? { referer: location.href } : undefined,
+        urls: [target.url],
+        options: target.referer ? { referer: target.referer } : undefined,
       });
     } catch {
       result = { ok: false };
     }
     button.classList.toggle('sent', !!result?.ok);
     button.classList.toggle('failed', !result?.ok);
-    button.querySelector('span').textContent = result?.ok ? 'Sent' : 'Failed';
-    setTimeout(scheduleHide, 900);
+    button.querySelector('span').textContent = result?.ok ? 'Sent' : (REASONS[result?.reason] || 'Failed');
+    setTimeout(scheduleHide, 1200);
   }
 
   // Throttled to ~12/s - elementsFromPoint is real DOM work, and mousemove

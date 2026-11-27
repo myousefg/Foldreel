@@ -321,23 +321,30 @@ async function flashBadge(result) {
 // all); only the two context-menu entries below still go straight through
 // with a badge flash, since they're already a single deliberate target.
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: 'foldreel-send-link',
-    title: 'Send link to Foldreel',
-    contexts: ['link'],
-  });
-  chrome.contextMenus.create({
-    id: 'foldreel-send-page',
-    title: 'Send this page to Foldreel',
-    contexts: ['page'],
+  // Menus survive an update only sometimes; start clean so the list never doubles.
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({ id: 'foldreel-send-link', title: 'Send link to Foldreel', contexts: ['link'] });
+    chrome.contextMenus.create({ id: 'foldreel-send-image', title: 'Send picture to Foldreel', contexts: ['image'] });
+    chrome.contextMenus.create({ id: 'foldreel-send-video', title: 'Send video to Foldreel', contexts: ['video', 'audio'] });
+    chrome.contextMenus.create({ id: 'foldreel-send-page', title: 'Send this page to Foldreel', contexts: ['page'] });
   });
   hello(true);
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  const url = info.menuItemId === 'foldreel-send-link' ? info.linkUrl : (info.pageUrl || tab?.url);
-  if (!url) return;
-  await flashBadge(await sendUrls([url]));
+  const page = info.pageUrl || tab?.url;
+  if (info.menuItemId === 'foldreel-send-link') {
+    if (info.linkUrl) await flashBadge(await sendUrls([info.linkUrl]));
+    return;
+  }
+  if (info.menuItemId === 'foldreel-send-image' || info.menuItemId === 'foldreel-send-video') {
+    // The file itself, with the page it sits on as the referer (most CDNs check it). A video that is an
+    // in-memory stream has no address of its own, so the page is what gets sent.
+    if (/^https?:/i.test(info.srcUrl || '')) await flashBadge(await sendUrls([info.srcUrl], page ? { referer: page } : undefined));
+    else if (page) await flashBadge(await sendUrls([page]));
+    return;
+  }
+  if (page) await flashBadge(await sendUrls([page]));
 });
 
 // Keyboard shortcut (Alt+Shift+F by default, rebindable at

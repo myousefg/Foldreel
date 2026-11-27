@@ -54,6 +54,9 @@ export const libraryApi = {
   favorite:    (paths, value) => api.post('/library/favorite', { paths, value }).then(r => r.data),
   tags:        (paths, add = [], remove = []) => api.post('/library/tags', { paths, add, remove }).then(r => r.data),
   duplicates:  ()       => api.get('/library/duplicates', { timeout: 0 }).then(r => r.data),
+  corrupted:   ()       => api.get('/library/corrupted').then(r => r.data),
+  corruptScan: (deep)   => api.post('/library/corrupted/scan', { deep: !!deep }).then(r => r.data),
+  corruptStop: ()       => api.post('/library/corrupted/cancel').then(r => r.data),
 };
 
 export const previewApi = {

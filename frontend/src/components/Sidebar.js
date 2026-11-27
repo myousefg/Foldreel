@@ -3,6 +3,7 @@ import { ArrowDownToLine, History, Images, Settings, KeyRound, SlidersHorizontal
 import { useI18n } from '@/context/I18nProvider';
 import { useJobs } from '@/context/JobsProvider';
 import { sentenceCase } from '@/lib/utils';
+import { hasCustomTitleBar } from './TitleBar';
 
 const linkClass = ({ isActive }) =>
   `flex items-center gap-2.5 px-2.5 h-8 rounded-md text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
@@ -40,10 +41,14 @@ export default function Sidebar() {
       className="w-52 shrink-0 flex flex-col bg-[hsl(var(--sidebar-background))] border-r border-[hsl(var(--sidebar-border))]"
       data-testid="sidebar"
     >
-      <div className="flex items-center gap-2 h-14 px-4 shrink-0">
-        <img src={`${process.env.PUBLIC_URL}/icon.png`} alt="" width="22" height="22" className="w-[22px] h-[22px] rounded-[5px]" />
-        <span className="text-sm font-semibold tracking-tight">Foldreel</span>
-      </div>
+      {hasCustomTitleBar() ? (
+        <div className="h-3 shrink-0" aria-hidden="true" />
+      ) : (
+        <div className="flex items-center gap-2 h-14 px-4 shrink-0">
+          <img src={`${process.env.PUBLIC_URL}/icon.png`} alt="" width="22" height="22" className="w-[22px] h-[22px] rounded-[5px]" />
+          <span className="text-sm font-semibold tracking-tight">Foldreel</span>
+        </div>
+      )}
 
       <nav className="flex-1 px-2.5 space-y-0.5" aria-label={t('nav.mainNav')} data-testid="sidebar-nav">
         <NavItem to="/" end icon={ArrowDownToLine} label={label('nav.dashboard')} badge={badge} testId="nav-dashboard" />

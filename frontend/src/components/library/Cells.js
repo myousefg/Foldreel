@@ -59,8 +59,8 @@ function Checkbox({ checked, label, onToggle, visible }) {
       type="button" role="checkbox" aria-checked={checked} aria-label={label} tabIndex={-1}
       onClick={(e) => { e.stopPropagation(); onToggle(e); }} onDoubleClick={(e) => e.stopPropagation()}
       className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-opacity ${
-        checked ? 'bg-primary border-primary text-primary-foreground opacity-100'
-          : `bg-black/40 border-white/80 text-transparent ${visible ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`
+        checked ? 'bg-primary border-primary text-primary-foreground' : 'bg-black/40 border-white/80 text-transparent'
+      } ${visible ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
       }`}
     >
       <Check className="w-3 h-3" aria-hidden="true" />
@@ -132,7 +132,7 @@ function EntryCellBase({
         style={{ gridTemplateColumns: DETAILS_COLUMNS }}
       >
         <span className="flex items-center justify-center">
-          {selected || selecting
+          {selecting
             ? <Checkbox checked={selected} visible label={t('library.select', { name })} onToggle={(e) => h.toggle(e, idx)} />
             : <span className="w-6 h-6 rounded overflow-hidden bg-muted flex items-center justify-center">
               {isFolder

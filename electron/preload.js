@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('app-update-status', listener);
     return () => ipcRenderer.removeListener('app-update-status', listener);
   },
+  // The window has no title bar of its own here: the page draws the top strip and sets its colours.
+  customTitleBar: process.platform === 'win32',
+  setTitleBar: (o) => ipcRenderer.invoke('set-titlebar', o),
   apiToken: API_TOKEN,
   isElectron: true,
   // True for the Microsoft Store package, which the Store (not GitHub) updates.

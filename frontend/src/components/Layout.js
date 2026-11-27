@@ -10,7 +10,7 @@ import { sentenceCase } from '@/lib/utils';
 // Page titles come from the nav labels, so no new strings are needed in 46 locales.
 const PAGE_TITLE_KEYS = {
   '/': 'nav.dashboard', '/library': 'nav.library', '/history': 'nav.history', '/watch': 'nav.watch',
-  '/convert': 'nav.convert', '/organize': 'nav.organize', '/settings': 'nav.settings',
+  '/convert': 'nav.convert', '/organize': 'nav.organize', '/edit': 'nav.edit', '/settings': 'nav.settings',
   '/advanced': 'nav.advanced', '/sites': 'nav.sites',
 };
 
@@ -22,13 +22,14 @@ export default function Layout({ children }) {
   const [subtitleEl, setSubtitleEl] = useState(null);
   const titleKey = PAGE_TITLE_KEYS[location.pathname];
   // The Library is a file explorer: it takes the whole window instead of the centred column.
-  const wide = location.pathname === '/library';
+  const wide = location.pathname === '/library' || location.pathname === '/edit';
 
   return (
     <HeaderSlots.Provider value={{ actions: actionsEl, subtitle: subtitleEl }}>
       <div className="relative flex h-screen overflow-clip bg-background" data-testid="app-layout">
         <Sidebar />
-        <main className="relative flex-1 min-w-0 overflow-y-auto overscroll-contain">
+        {/* layoutScroll tells list animations (drag to reorder) that this box scrolls, so rows do not jump while it does */}
+        <motion.main layoutScroll className="relative flex-1 min-w-0 overflow-y-auto overscroll-contain">
           <motion.div
             key={location.pathname}
             initial={routeFade.initial}
@@ -47,7 +48,7 @@ export default function Layout({ children }) {
             </header>
             {children}
           </motion.div>
-        </main>
+        </motion.main>
       </div>
     </HeaderSlots.Provider>
   );

@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, ExternalLink, FolderOpen, Play, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/context/I18nProvider';
-import { thumbUrl } from '@/lib/api';
+import { mediaUrl, thumbUrl } from '@/lib/api';
 import { isElectron } from '@/lib/electron';
 
 // One picture or video frame at full size, with the way into the real file.
@@ -11,6 +11,8 @@ export default function MediaLightbox({ files, index, onIndex, onClose }) {
   const { t } = useI18n();
   const closeRef = useRef(null);
   const file = files[index];
+  const [playFailed, setPlayFailed] = useState(false); // a video this app cannot decode falls back to the picture
+  useEffect(() => { setPlayFailed(false); }, [file?.path]);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -52,12 +54,23 @@ export default function MediaLightbox({ files, index, onIndex, onClose }) {
       </div>
 
       <div className="relative flex-1 min-h-0 flex items-center justify-center px-16 pb-6">
-        <img
-          key={file.path} src={thumbUrl(file.path, 1600)} alt={file.name} draggable={false}
-          className="max-w-full max-h-full object-contain rounded-md"
-          onClick={(e) => e.stopPropagation()}
-        />
-        {file.kind === 'video' && isElectron && (
+        {file.kind === 'video' && !playFailed ? (
+          <video
+            key={file.path} src={mediaUrl(file.path)} poster={thumbUrl(file.path, 1600)} controls autoPlay playsInline
+            className="max-w-full max-h-full rounded-md bg-black" data-testid="lightbox-video"
+            onClick={(e) => e.stopPropagation()} onError={() => setPlayFailed(true)}
+          />
+        ) : (
+          <img
+            key={file.path} src={thumbUrl(file.path, 1600)} alt={file.name} draggable={false}
+            className="max-w-full max-h-full object-contain rounded-md"
+            onClick={(e) => e.stopPropagation()}
+          />
+        )}
+        {file.kind === 'video' && playFailed && (
+          <p className="absolute bottom-2 inset-x-0 text-center text-xs text-white/70" role="status">{t('library.cantPlay')}</p>
+        )}
+        {file.kind === 'video' && playFailed && isElectron && (
           <button
             type="button" onClick={(e) => { e.stopPropagation(); open(); }} aria-label={t('library.play')}
             className="absolute w-16 h-16 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

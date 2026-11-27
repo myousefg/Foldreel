@@ -13,6 +13,7 @@ import Onboarding, { introDismissed } from '@/components/Onboarding';
 import Dashboard from '@/pages/Dashboard';
 import Convert from '@/pages/Convert';
 import Organize from '@/pages/Organize';
+import Edit from '@/pages/Edit';
 import History from '@/pages/History';
 import Library from '@/pages/Library';
 import Watch from '@/pages/Watch';
@@ -54,6 +55,7 @@ function RoutedShell() {
             <Route path="/"        element={<Dashboard />} />
             <Route path="/convert" element={<Convert />} />
             <Route path="/organize" element={<Organize />} />
+            <Route path="/edit" element={<Edit />} />
             <Route path="/library" element={<Library />} />
             <Route path="/history" element={<History />} />
             <Route path="/watch"   element={<Watch />} />

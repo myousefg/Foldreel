@@ -1,7 +1,7 @@
 import { useId, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronDown, Film, ImageOff, Pause, Play, RotateCcw, Trash2 } from 'lucide-react';
+import { ChevronDown, Copy, Film, FolderOpen, ImageOff, Pause, Play, RotateCcw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -10,7 +10,8 @@ import { SiteAvatar } from '@/components/kit';
 import { useI18n } from '@/context/I18nProvider';
 import { parseSource } from '@/lib/jobMeta';
 import { useJobs } from '@/context/JobsProvider';
-import { jobsApi, thumbUrl } from '@/lib/api';
+import { jobsApi, thumbUrl, watchAvatarUrl } from '@/lib/api';
+import { isElectron } from '@/lib/electron';
 import { snappy } from '@/lib/motion';
 import MediaLightbox from '@/components/MediaLightbox';
 
@@ -23,6 +24,27 @@ function timeAgo(iso) {
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   return `${Math.floor(s / 86400)}d`;
+}
+
+const folderOf = (p) => p.replace(/[\\/][^\\/]*$/, '');
+
+async function copyText(text, message, t) {
+  try { await navigator.clipboard.writeText(text); toast.success(message); } catch { toast.error(t('watch.actionFailed')); }
+}
+
+// The creator's own picture when the site gave one, the site's icon otherwise.
+function WatchAvatar({ w }) {
+  const [failed, setFailed] = useState(false);
+  if (!w.has_avatar || failed) return <SiteAvatar url={w.url} size={36} />;
+  return (
+    <span className="relative inline-block shrink-0">
+      <img
+        src={watchAvatarUrl(w.id)} alt="" width={36} height={36} draggable={false} onError={() => setFailed(true)}
+        className="w-9 h-9 rounded-full object-cover ring-1 ring-inset ring-border bg-muted"
+      />
+      <SiteAvatar url={w.url} size={16} className="absolute -end-1 -bottom-1 ring-2 ring-background" />
+    </span>
+  );
 }
 
 // A thumbnail that opens the picture at full size.
@@ -82,12 +104,17 @@ function WatchRow({ w, active, onUpdate, onRemove, onCheckNow }) {
   return (
     <div className="" data-testid={`watch-${w.id}`}>
       <div className="row-hover flex items-center gap-4 px-3 py-3">
-        <SiteAvatar url={w.url} size={36} />
+        <WatchAvatar w={w} />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium truncate" title={w.url}>
+          <button
+            type="button" onClick={() => copyText(w.url, t('watch.linkCopied'), t)}
+            title={`${w.url}\n${t('watch.copyLink')}`} aria-label={`${t('watch.copyLink')}: ${w.url}`}
+            className="block max-w-full text-start text-sm font-medium truncate rounded hover:underline decoration-dotted underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid={`watch-copy-${w.id}`}
+          >
             {source.host}
             {source.path && <span className="font-normal text-muted-foreground"> / {source.path}</span>}
-          </p>
+          </button>
           <p className={`flex items-center gap-1.5 text-xs mt-0.5 truncate ${w.last_status === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>
             <span
               className={`w-1.5 h-1.5 rounded-full shrink-0 ${w.last_status === 'error' ? 'bg-destructive' : w.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`}
@@ -147,8 +174,42 @@ function WatchRow({ w, active, onUpdate, onRemove, onCheckNow }) {
               {files === null && <p className="text-xs text-muted-foreground pt-2">{t('common.loading')}</p>}
               {files && files.length === 0 && <p className="text-xs text-muted-foreground pt-2">{t('watch.filesGone')}</p>}
               {files && files.length > 0 && (
+                <div className="flex items-center gap-2 pt-2 min-w-0" data-testid={`watch-folder-${w.id}`}>
+                  <span className="text-[11px] text-muted-foreground shrink-0">{t('watch.savedTo')}</span>
+                  <button
+                    type="button" onClick={() => copyText(folderOf(files[0].path), t('watch.pathCopied'), t)}
+                    title={`${folderOf(files[0].path)}\n${t('watch.copyPath')}`}
+                    className="min-w-0 truncate rounded font-mono text-[11px] hover:underline decoration-dotted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {folderOf(files[0].path)}
+                  </button>
+                  {isElectron && window.electronAPI?.openPath && (
+                    <Button
+                      size="icon" variant="ghost" className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                      title={t('library.openFolder')} aria-label={t('library.openFolder')}
+                      onClick={() => window.electronAPI.openPath(folderOf(files[0].path))}
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+                </div>
+              )}
+              {files && files.length > 0 && (
                 <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2 mt-2">
-                  {files.slice(0, 24).map((f, i) => <Thumb key={f.path} f={f} onOpen={() => setLight(i)} />)}
+                  {files.slice(0, 24).map((f, i) => (
+                    <div key={f.path} className="min-w-0">
+                      <Thumb f={f} onOpen={() => setLight(i)} />
+                      <button
+                        type="button" onClick={() => copyText(f.path, t('watch.pathCopied'), t)}
+                        title={`${f.path}\n${t('watch.copyPath')}`} aria-label={`${t('watch.copyPath')}: ${f.path}`}
+                        className="mt-1 flex items-center gap-1 w-full min-w-0 rounded text-start text-[10px] leading-tight text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        data-testid="watch-file-path"
+                      >
+                        <Copy className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />
+                        <span className="truncate font-mono">{f.name || f.path.split(/[\\/]/).pop()}</span>
+                      </button>
+                    </div>
+                  ))}
                   {files.length > 24 && (
                     <span className="aspect-square rounded-lg border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground tabular-nums">
                       +{files.length - 24}

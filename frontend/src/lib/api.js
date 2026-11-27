@@ -20,6 +20,8 @@ const api = axios.create({
 
 const tokenParam = API_TOKEN ? `&token=${encodeURIComponent(API_TOKEN)}` : '';
 export const thumbUrl = (path, size) => `${API_HOST}/api/thumb?path=${encodeURIComponent(path)}${size ? `&size=${size}` : ''}${tokenParam}`;
+export const watchAvatarUrl = (id) => `${API_HOST}/api/watches/${encodeURIComponent(id)}/avatar${tokenParam ? `?${tokenParam.slice(1)}` : ''}`;
+export const mediaUrl = (path) => `${API_HOST}/api/media?path=${encodeURIComponent(path)}${tokenParam}`;
 export const organizeThumbUrl = (path, size) => `${API_HOST}/api/organize/thumb?path=${encodeURIComponent(path)}${size ? `&size=${size}` : ''}${tokenParam}`;
 
 export const jobsApi = {
@@ -116,6 +118,8 @@ export const toolsApi = {
 export const extensionApi = {
   enable:  () => api.post('/extension-pairing').then(r => r.data),
   disable: () => api.delete('/extension-pairing').then(r => r.data),
+  link:    () => api.post('/extension-link').then(r => r.data),
+  cancelLink: () => api.delete('/extension-link').then(r => r.data),
 };
 
 export const importApi = {
@@ -133,4 +137,13 @@ export const sitesApi = {
   startOauth:  (site)    => api.post(`/sites/${site}/oauth`).then(r => r.data),
   oauthStatus: (site)    => api.get(`/sites/${site}/oauth`).then(r => r.data),
   cancelOauth: (site)    => api.delete(`/sites/${site}/oauth`).then(r => r.data),
+};
+
+export const editApi = {
+  info:        (path) => api.get('/edit/info', { params: { path } }).then(r => r.data),
+  filmstripUrl: (path, count = 12, height = 56) => `${API_HOST}/api/edit/filmstrip?path=${encodeURIComponent(path)}&count=${count}&height=${height}${tokenParam}`,
+  waveformUrl: (path, width = 1200, height = 48) => `${API_HOST}/api/edit/waveform?path=${encodeURIComponent(path)}&width=${width}&height=${height}${tokenParam}`,
+  export:      (path, ops) => api.post('/edit/export', { path, ops }).then(r => r.data),
+  status:      (id) => api.get(`/edit/export/${id}`).then(r => r.data),
+  cancel:      (id) => api.post(`/edit/export/${id}/cancel`).then(r => r.data),
 };

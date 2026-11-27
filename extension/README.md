@@ -61,6 +61,11 @@ Then connect it to Foldreel:
 
 ## Security notes
 
+- When it starts, is installed, or its popup or settings page opens, the extension tells Foldreel on this
+  computer that it exists, and sends its version number and nothing else. While you have pressed "Link the
+  extension" in Foldreel (a ten minute window), Foldreel answers with the pairing code, so you do not have to
+  copy it. Foldreel only answers from a browser-extension origin, never from a web page.
+
 - The pop-up blocker runs inside every page and frame you open (`<all_urls>`,
   all frames, from document start). It only reads the page's own elements to
   decide what to hide, keeps nothing, and sends nothing anywhere; the only

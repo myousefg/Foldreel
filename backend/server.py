@@ -66,6 +66,7 @@ CONFIG_PATH = BASE_DIR / "gallery-dl.json"
 CACHE_PATH = BASE_DIR / "gallery-dl-cache.sqlite3"   # gallery-dl's token/cursor cache
 TOOLS_DIR = BASE_DIR / "tools"
 THUMBS_DIR = BASE_DIR / "thumbs"                     # generated video frame cache
+AVATARS_DIR = BASE_DIR / "avatars"                   # a watched creator's profile picture, one file per watch
 COOKIES_DIR = BASE_DIR / "cookies"                   # drop cookies.txt exports here
 COOKIES_MERGED = BASE_DIR / "cookies-merged.txt"     # generated: all of the above, deduped
 COOKIES_DIR.mkdir(parents=True, exist_ok=True)
@@ -148,7 +149,7 @@ DEFAULT_OUTPUT_DIR = (
     os.environ.get("FOLDREEL_DEFAULT_OUTPUT")
     or str(Path.home() / "Downloads" / "Foldreel")
 )
-APP_VERSION = "1.1.1"                                # single source at runtime
+APP_VERSION = "1.2.0"                                # single source at runtime
 # Set by the Electron shell when running as the Microsoft Store package. A Store app is
 # updated by the Store, and must not download and run replacement executables itself.
 IS_STORE = os.environ.get("FOLDREEL_STORE") == "1"
@@ -515,6 +516,9 @@ CREATE INDEX IF NOT EXISTS idx_organize_log_organized ON organize_log(organized_
             ("settings", "notifications_enabled", "INTEGER DEFAULT 1"),
             ("settings", "extension_secret", "TEXT DEFAULT ''"),
             ("settings", "extension_last_used", "TEXT DEFAULT ''"),
+            ("settings", "extension_seen_at", "TEXT DEFAULT ''"),
+            ("settings", "extension_version", "TEXT DEFAULT ''"),
+            ("settings", "extension_link_until", "TEXT DEFAULT ''"),
             ("settings", "gdl_overrides", "TEXT DEFAULT '{}'"),
             ("settings", "presets", "TEXT DEFAULT '[]'"),
             ("settings", "default_photo_format", "TEXT DEFAULT 'keep'"),
@@ -1086,10 +1090,64 @@ def _job_public(row: Optional[dict]) -> dict:
     return row
 
 
+_AVATAR_KEYS = ("profile_pic_url_hd", "profile_pic_url", "profile_image_url_https", "profile_image_url",
+                "profile_image", "avatar_url", "avatar", "icon_img", "userpic", "user_image")
+_AVATAR_OWNERS = ("user", "author", "owner", "uploader", "artist", "creator", "channel", "account", "blog")
+
+
+def _avatar_from_meta(d: dict) -> str:
+    """A creator's profile picture address from a gallery-dl metadata file, wherever the site keeps it."""
+    def pick(o) -> str:
+        if not isinstance(o, dict):
+            return ""
+        for k in _AVATAR_KEYS:
+            v = o.get(k)
+            if isinstance(v, dict):
+                v = v.get("url") or v.get("src")
+            if isinstance(v, str) and v.startswith(("http://", "https://")):
+                return v
+        return ""
+    got = pick(d)
+    if got:
+        return got
+    for k in _AVATAR_OWNERS:
+        got = pick(d.get(k))
+        if got:
+            return got
+    return ""
+
+
+def _avatar_path(watch_id: str) -> Path:
+    return AVATARS_DIR / f"{re.sub(r'[^0-9a-f]', '', watch_id)[:40]}.img"
+
+
+def _save_watch_avatar(watch_id: str, url: str) -> bool:
+    """Download a profile picture once, so the Watch page does not hotlink a site (whose address
+    expires, and which would see every visit). Small images only."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 Foldreel"})
+        with urllib.request.urlopen(req, timeout=10) as r:  # noqa: S310 - http(s) checked by the caller
+            if "image" not in (r.headers.get("Content-Type") or "").lower():
+                return False
+            data = r.read(2_000_001)
+        if not data or len(data) > 2_000_000:
+            return False
+        AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+        _avatar_path(watch_id).write_bytes(data)
+        return True
+    except Exception:
+        return False
+
+
 def _watch_public(row: Optional[dict]) -> dict:
     if not row:
         return {}
     row = dict(row)
+    try:
+        row["has_avatar"] = _avatar_path(row.get("id", "")).is_file()
+    except Exception:
+        row["has_avatar"] = False
     try:
         row["options"] = json.loads(row.pop("options_json", "{}") or "{}")
     except Exception:
@@ -1485,6 +1543,18 @@ class JobManager:
             except Exception:
                 pass
         _lib_state["dirty"] = True
+        # A watched creator's profile picture, when the site's metadata names one.
+        wid = (_job_row(job_id) or {}).get("watch_id")
+        if wid and not _avatar_path(wid).is_file():
+            for raw in sidecar_sources:
+                try:
+                    with open(raw + ".json", "rb") as fh:
+                        meta = json.loads(fh.read(1_000_000).decode("utf-8", "replace"))
+                    got = _avatar_from_meta(meta) if isinstance(meta, dict) else ""
+                    if got and await asyncio.to_thread(_save_watch_avatar, wid, got):
+                        break
+                except (OSError, ValueError):
+                    continue
         if not int(settings.get("write_metadata", 0)):
             for raw in sidecar_sources:
                 try:
@@ -2504,6 +2574,17 @@ async def _local_guard(request: Request, call_next):
     if host and host not in ("127.0.0.1", "localhost"):
         return JSONResponse({"detail": "bad host"}, status_code=403)
     path = request.url.path
+    # The extension says hello before it holds a pairing code, so this one route has no secret to
+    # check. What it can do is narrow: note that an extension exists, and, only while the person
+    # has pressed "Link the extension" in Foldreel, hand the pairing code to it. A web page can not
+    # reach it, because a page's Origin is its own site and never a browser-extension origin.
+    if path == "/api/extension-hello":
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        origin = request.headers.get("origin") or ""
+        if not origin.startswith(("chrome-extension://", "moz-extension://", "edge-extension://")):
+            return JSONResponse({"detail": "forbidden origin"}, status_code=403)
+        return await call_next(request)
     # The browser extension is a separate trust boundary from the Electron
     # renderer: it has no way to receive the per-run FOLDREEL_TOKEN (that's only
     # ever handed over via Electron's preload argv), and its requests carry
@@ -2833,6 +2914,17 @@ def create_watch(body: WatchIn):
     return _watch_public(db_one("SELECT * FROM watches WHERE id=?", (watch_id,)))
 
 
+@api.get("/watches/{watch_id}/avatar")
+def watch_avatar(watch_id: str):
+    p = _avatar_path(watch_id)
+    if not p.is_file():
+        raise HTTPException(404, "No picture")
+    head = p.read_bytes()[:12]
+    kind = ("image/png" if head.startswith(b"\x89PNG") else "image/webp" if head[8:12] == b"WEBP"
+            else "image/gif" if head.startswith(b"GIF8") else "image/jpeg")
+    return FileResponse(str(p), media_type=kind, headers={"Cache-Control": "private, max-age=3600"})
+
+
 @api.patch("/watches/{watch_id}")
 def update_watch(watch_id: str, body: WatchPatch):
     row = db_one("SELECT * FROM watches WHERE id=?", (watch_id,))
@@ -2851,6 +2943,10 @@ def delete_watch(watch_id: str):
     if not row:
         raise HTTPException(404, "Watch not found")
     db_run("DELETE FROM watches WHERE id=?", (watch_id,))
+    try:
+        _avatar_path(watch_id).unlink(missing_ok=True)
+    except OSError:
+        pass
     return {"ok": True}
 
 
@@ -2935,6 +3031,49 @@ def enable_extension():
         (secret,),
     )
     return {"extension_secret": secret}
+
+
+def _link_window_open() -> bool:
+    until = (get_settings().get("extension_link_until") or "")
+    return bool(until) and until > _now()
+
+
+class ExtensionHelloIn(BaseModel):
+    version: Optional[str] = ""
+    paired: Optional[bool] = False
+
+
+# The extension calls this when it starts, is installed, or its popup opens. It lets Foldreel show
+# "extension found" even before pairing, and finish pairing by itself during the short window that
+# opens when the person presses "Link the extension".
+@api.post("/extension-hello")
+def extension_hello(body: ExtensionHelloIn):
+    version = re.sub(r"[^0-9A-Za-z.\-]", "", body.version or "")[:20]
+    db_run("UPDATE settings SET extension_seen_at=?, extension_version=? WHERE id='singleton'", (_now(), version))
+    out = {"app": "foldreel", "version": APP_VERSION, "linked": False}
+    if _link_window_open():
+        secret = get_settings().get("extension_secret") or ""
+        if not secret:
+            secret = secrets.token_hex(24)
+        db_run(
+            "UPDATE settings SET extension_secret=?, extension_last_used=?, extension_link_until='' WHERE id='singleton'",
+            (secret, _now()),
+        )
+        out.update({"linked": True, "secret": secret})
+    return out
+
+
+@api.post("/extension-link")
+def open_extension_link():
+    until = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    db_run("UPDATE settings SET extension_link_until=? WHERE id='singleton'", (until,))
+    return {"extension_link_until": until}
+
+
+@api.delete("/extension-link")
+def cancel_extension_link():
+    db_run("UPDATE settings SET extension_link_until='' WHERE id='singleton'")
+    return {"extension_link_until": ""}
 
 
 @api.delete("/extension-pairing")
@@ -3641,6 +3780,7 @@ def library_list(
         "root": root, "folder": folder, "folders": folders, "groups": groups, "version": _lib_state["version"],
         "total": total_row["n"], "total_size": total_row["s"], "counts": counts, "scope_size": scope_total["s"],
         "scope_count": scope_total["n"], "items": [_lib_item(r) for r in rows],
+        "folder_exists": not folder or bool(db_one("SELECT 1 AS x FROM lib_dirs WHERE rel=?", (folder,))),
     }
 
 
@@ -4936,6 +5076,369 @@ def organize_stat_paths(body: StatPathsIn):
             continue
         items.append({"path": str(p), "name": p.name, "is_dir": p.is_dir()})
     return {"items": items}
+
+
+# ── Edit: basic photo, video and sound editing with ffmpeg ──────────────────────
+# The page works on any file the person picks, like Convert and Organize. Nothing is changed in
+# place: the result is a new file next to the original.
+_AUD_EXT = {".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus"}
+_EDIT_VID_EXT = _VID_EXT | {".avi", ".wmv", ".flv", ".3gp", ".gif"}
+_EDIT_IMG_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".avif"}
+_MEDIA_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+                ".mkv": "video/x-matroska", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+                ".wav": "audio/wav", ".flac": "audio/flac", ".ogg": "audio/ogg", ".opus": "audio/ogg"}
+
+
+def _ffprobe_bin() -> Optional[str]:
+    return tool_path("ffprobe") or shutil.which("ffprobe") or shutil.which("ffprobe.exe")
+
+
+def _edit_kind(p: Path) -> str:
+    ext = p.suffix.lower()
+    if ext in _EDIT_IMG_EXT:
+        return "image"
+    if ext in _EDIT_VID_EXT:
+        return "video"
+    if ext in _AUD_EXT:
+        return "audio"
+    return ""
+
+
+def _edit_probe(p: Path) -> dict:
+    """Size as it is shown (a phone video turned by its metadata counts as turned), length, sound."""
+    kind = _edit_kind(p)
+    out = {"kind": kind, "name": p.name, "path": str(p), "size": p.stat().st_size, "width": 0, "height": 0,
+           "duration": 0.0, "has_audio": False, "fps": 0.0}
+    fp = _ffprobe_bin()
+    if not fp:
+        raise HTTPException(500, "ffprobe is missing")
+    try:
+        r = subprocess.run([fp, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(p)],
+                           capture_output=True, timeout=30, text=True, encoding="utf-8", errors="replace",
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        info = json.loads(r.stdout or "{}")
+    except Exception:
+        raise HTTPException(422, "Could not read this file")
+    streams = info.get("streams") or []
+    video = next((s for s in streams if s.get("codec_type") == "video" and not (s.get("disposition") or {}).get("attached_pic")), None) \
+        or next((s for s in streams if s.get("codec_type") == "video"), None)
+    out["has_audio"] = any(s.get("codec_type") == "audio" for s in streams)
+    if video:
+        w, h = int(video.get("width") or 0), int(video.get("height") or 0)
+        rot = 0
+        for sd in video.get("side_data_list") or []:
+            if "rotation" in sd:
+                rot = int(round(float(sd["rotation"])))
+        rot = rot or int(round(float((video.get("tags") or {}).get("rotate") or 0)))
+        if abs(rot) % 180 == 90:
+            w, h = h, w
+        out["width"], out["height"] = w, h
+        try:
+            a, b = (video.get("avg_frame_rate") or "0/1").split("/")
+            out["fps"] = round(float(a) / float(b), 2) if float(b) else 0.0
+        except (ValueError, ZeroDivisionError):
+            pass
+    try:
+        out["duration"] = float((info.get("format") or {}).get("duration") or (video or {}).get("duration") or 0)
+    except (TypeError, ValueError):
+        pass
+    if kind == "image":
+        out["duration"] = 0.0
+    return out
+
+
+class EditOps(BaseModel):
+    trim_start: float = 0.0
+    trim_end: Optional[float] = None
+    rotate: int = 0                       # clockwise degrees: 0, 90, 180 or 270
+    flip_h: bool = False
+    flip_v: bool = False
+    crop: Optional[List[float]] = None    # x, y, width, height as fractions of the turned picture
+    brightness: float = 0.0               # -1 .. 1
+    contrast: float = 0.0
+    saturation: float = 0.0
+    speed: float = 1.0                    # 0.25 .. 4
+    volume: float = 1.0                   # 0 .. 2
+    mute: bool = False
+    fade_in: float = 0.0
+    fade_out: float = 0.0
+    format: str = "auto"                  # auto mp4 webm gif mp3 jpg png webp
+    quality: str = "high"                 # high balanced small
+
+
+class EditExportIn(BaseModel):
+    path: str
+    ops: EditOps
+
+
+def _edit_atempo(speed: float) -> str:
+    parts = []
+    while speed > 2.0:
+        parts.append("atempo=2.0")
+        speed /= 2.0
+    while speed < 0.5:
+        parts.append("atempo=0.5")
+        speed /= 0.5
+    parts.append(f"atempo={speed:.4f}")
+    return ",".join(parts)
+
+
+def _edit_out_format(kind: str, ops: EditOps, src: Path) -> str:
+    f = (ops.format or "auto").lower()
+    if kind == "image":
+        if f in ("jpg", "png", "webp"):
+            return f
+        ext = src.suffix.lower().lstrip(".")
+        return {"jpeg": "jpg"}.get(ext, ext) if ext in ("jpg", "jpeg", "png", "webp") else "png"
+    if kind == "audio":
+        return "mp3"
+    return f if f in ("mp4", "webm", "gif", "mp3") else "mp4"
+
+
+def _edit_command(ff: str, src: Path, info: dict, ops: EditOps, out: Path, fmt: str) -> Tuple[List[str], float]:
+    """The ffmpeg command for these edits, and how long the result will be (seconds; 0 for a picture)."""
+    kind = info["kind"]
+    dur = float(info.get("duration") or 0)
+    start = max(0.0, min(float(ops.trim_start or 0), max(dur - 0.05, 0.0))) if kind != "image" else 0.0
+    end = float(ops.trim_end) if ops.trim_end else dur
+    end = min(max(end, start + 0.05), dur) if dur else end
+    span = max(end - start, 0.0) if kind != "image" else 0.0
+    speed = min(max(float(ops.speed or 1), 0.25), 4.0) if kind != "image" else 1.0
+    out_len = span / speed if span else 0.0
+
+    vf: List[str] = []
+    if kind in ("image", "video"):
+        rot = int(ops.rotate or 0) % 360
+        if rot == 90:
+            vf.append("transpose=1")
+        elif rot == 270:
+            vf.append("transpose=2")
+        elif rot == 180:
+            vf += ["hflip", "vflip"]
+        if ops.flip_h:
+            vf.append("hflip")
+        if ops.flip_v:
+            vf.append("vflip")
+        c = ops.crop
+        if c and len(c) == 4:
+            x, y, w, h = [min(max(float(v), 0.0), 1.0) for v in c]
+            w, h = min(w, 1.0 - x), min(h, 1.0 - y)
+            if w > 0.001 and h > 0.001 and (w < 0.999 or h < 0.999 or x > 0.001 or y > 0.001):
+                vf.append(f"crop=trunc(iw*{w:.5f}/2)*2:trunc(ih*{h:.5f}/2)*2:trunc(iw*{x:.5f}):trunc(ih*{y:.5f})")
+        b, ct, sa = (min(max(float(v), -1.0), 1.0) for v in (ops.brightness, ops.contrast, ops.saturation))
+        if b or ct or sa:
+            vf.append(f"eq=brightness={b * 0.2:.4f}:contrast={1 + ct * 0.5:.4f}:saturation={1 + sa:.4f}")
+        if kind == "video" and speed != 1.0:
+            vf.append(f"setpts=PTS/{speed:.4f}")
+
+    crf = {"high": 18, "balanced": 23, "small": 28}.get(ops.quality, 18)
+    cmd = [ff, "-hide_banner", "-y", "-nostats", "-progress", "pipe:1"]
+    if kind != "image" and (start > 0 or (end and dur and end < dur - 0.01)):
+        cmd += ["-ss", f"{start:.3f}", "-t", f"{span:.3f}"]
+    cmd += ["-i", str(src)]
+
+    af: List[str] = []
+    want_audio = kind in ("video", "audio") and info.get("has_audio") and not ops.mute and fmt in ("mp4", "webm", "mp3")
+    if want_audio:
+        vol = min(max(float(ops.volume), 0.0), 2.0)
+        if abs(vol - 1.0) > 0.001:
+            af.append(f"volume={vol:.3f}")
+        if speed != 1.0:
+            af.append(_edit_atempo(speed))
+        fi = min(max(float(ops.fade_in or 0), 0.0), out_len / 2 if out_len else 0.0)
+        fo = min(max(float(ops.fade_out or 0), 0.0), out_len / 2 if out_len else 0.0)
+        if fi > 0.01:
+            af.append(f"afade=t=in:st=0:d={fi:.3f}")
+        if fo > 0.01 and out_len:
+            af.append(f"afade=t=out:st={max(out_len - fo, 0):.3f}:d={fo:.3f}")
+
+    if fmt == "mp3":
+        cmd += ["-vn"] + (["-af", ",".join(af)] if af else []) + ["-c:a", "libmp3lame", "-q:a", {"high": "2", "balanced": "4", "small": "6"}.get(ops.quality, "2")]
+    elif fmt == "gif":
+        base = ",".join(vf + ["fps=15", "scale='min(480,iw)':-2:flags=lanczos"])
+        cmd += ["-an", "-vf", f"{base},split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse"]
+    elif fmt in ("jpg", "png", "webp"):
+        cmd += (["-vf", ",".join(vf)] if vf else []) + ["-frames:v", "1"]
+        cmd += {"jpg": ["-q:v", "2"], "webp": ["-q:v", "80"], "png": []}[fmt]
+    elif fmt == "webm":
+        chain = vf + ["scale=trunc(iw/2)*2:trunc(ih/2)*2"]
+        cmd += ["-vf", ",".join(chain), "-c:v", "libvpx-vp9", "-crf", str(crf + 12), "-b:v", "0", "-row-mt", "1"]
+        cmd += (["-af", ",".join(af), "-c:a", "libopus"] if want_audio and af else (["-c:a", "libopus"] if want_audio else ["-an"]))
+    else:  # mp4
+        chain = vf + ["scale=trunc(iw/2)*2:trunc(ih/2)*2", "format=yuv420p"]
+        cmd += ["-vf", ",".join(chain), "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf)]
+        cmd += (["-af", ",".join(af), "-c:a", "aac", "-b:a", "160k"] if want_audio and af else (["-c:a", "aac", "-b:a", "160k"] if want_audio else ["-an"]))
+        cmd += ["-movflags", "+faststart"]
+    cmd.append(str(out))
+    return cmd, out_len
+
+
+def _edit_out_path(src: Path, fmt: str) -> Path:
+    n = 1
+    while True:
+        tag = " (edited)" if n == 1 else f" (edited {n})"
+        cand = src.with_name(f"{src.stem}{tag}.{fmt}")
+        if not cand.exists():
+            return cand
+        n += 1
+
+
+_edit_jobs: dict = {}
+_EDIT_JOB_CAP = 40
+
+
+def _edit_run(job_id: str, cmd: List[str], out_len: float, out: Path) -> None:
+    job = _edit_jobs[job_id]
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        job["proc"] = proc
+        errbuf: List[str] = []
+        threading.Thread(target=lambda: errbuf.extend(proc.stderr.readlines()[-30:]), daemon=True).start()
+        for line in proc.stdout:
+            if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
+                try:
+                    secs = int(line.split("=", 1)[1]) / 1_000_000
+                    if out_len > 0:
+                        job["pct"] = max(0, min(99, int(secs / out_len * 100)))
+                except ValueError:
+                    pass
+        proc.wait()
+        if job.get("status") == "canceled":
+            out.unlink(missing_ok=True)
+        elif proc.returncode == 0 and out.exists() and out.stat().st_size > 0:
+            job.update(status="done", pct=100)
+            _lib_state["dirty"] = True
+        else:
+            out.unlink(missing_ok=True)
+            tail = "".join(errbuf).strip().splitlines()
+            job.update(status="error", error=(tail[-1] if tail else "ffmpeg failed")[:300])
+    except Exception as e:  # noqa: BLE001 - report whatever went wrong to the page
+        job.update(status="error", error=str(e)[:300])
+    finally:
+        job.pop("proc", None)
+
+
+@api.get("/media")
+def media_file(path: str):
+    """A picture, video or sound file for the in-app player. Supports seeking (Range)."""
+    p = Path(path)
+    ext = p.suffix.lower()
+    if not p.is_file() or ext not in (_IMG_EXT | _VID_EXT | _EDIT_VID_EXT | _AUD_EXT):
+        raise HTTPException(404, "Not found")
+    return FileResponse(str(p), media_type=_MEDIA_TYPES.get(ext), headers={"Cache-Control": "private, max-age=60"})
+
+
+def _edit_source(path: str) -> Path:
+    p = Path(path)
+    if not p.is_file() or not _edit_kind(p):
+        raise HTTPException(404, "Not a photo, video or sound file")
+    return p
+
+
+@api.get("/edit/info")
+def edit_info(path: str):
+    return _edit_probe(_edit_source(path))
+
+
+def _edit_cached_png(p: Path, tag: str, build) -> Path:
+    st = p.stat()
+    key = hashlib.sha1(f"{p.resolve()}|{st.st_mtime_ns}|{st.st_size}|{tag}".encode()).hexdigest()
+    out = THUMBS_DIR / f"{key}.png"
+    if out.exists() and out.stat().st_size > 0:
+        return out
+    ff = _ffmpeg_bin()
+    if not ff:
+        raise HTTPException(500, "ffmpeg is missing")
+    THUMBS_DIR.mkdir(parents=True, exist_ok=True)
+    cmd = build(ff, out)
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except Exception:
+        pass
+    if not out.exists() or out.stat().st_size == 0:
+        out.unlink(missing_ok=True)
+        raise HTTPException(404, "Could not make the picture")
+    return out
+
+
+@api.get("/edit/filmstrip")
+def edit_filmstrip(path: str, count: int = Query(12, ge=2, le=40), height: int = Query(56, ge=24, le=160)):
+    """One picture holding `count` frames side by side, for the timeline."""
+    p = _edit_source(path)
+    if _edit_kind(p) != "video":
+        raise HTTPException(404, "Only videos have frames")
+    dur = float(_edit_probe(p).get("duration") or 0)
+    if dur <= 0:
+        raise HTTPException(404, "No length")
+
+    def build(ff, out):
+        return [ff, "-hide_banner", "-y", "-i", str(p), "-an", "-sn", "-vf",
+                f"fps={count}/{dur:.3f},scale=-2:{height},tile={count}x1", "-frames:v", "1", str(out)]
+    return FileResponse(str(_edit_cached_png(p, f"film|{count}|{height}", build)), media_type="image/png")
+
+
+@api.get("/edit/waveform")
+def edit_waveform(path: str, width: int = Query(1200, ge=100, le=4000), height: int = Query(48, ge=16, le=160)):
+    p = _edit_source(path)
+    if _edit_kind(p) == "image" or not _edit_probe(p).get("has_audio"):
+        raise HTTPException(404, "No sound")
+
+    def build(ff, out):
+        return [ff, "-hide_banner", "-y", "-i", str(p), "-vn", "-filter_complex",
+                f"aformat=channel_layouts=mono,showwavespic=s={width}x{height}:colors=0x8fb3ff", "-frames:v", "1", str(out)]
+    return FileResponse(str(_edit_cached_png(p, f"wave|{width}|{height}", build)), media_type="image/png")
+
+
+@api.post("/edit/export")
+def edit_export(body: EditExportIn):
+    p = _edit_source(body.path)
+    info = _edit_probe(p)
+    ff = _ffmpeg_bin()
+    if not ff:
+        raise HTTPException(500, "ffmpeg is missing")
+    ops = body.ops
+    if int(ops.rotate or 0) % 90:
+        raise HTTPException(400, "Rotation must be a multiple of 90")
+    fmt = _edit_out_format(info["kind"], ops, p)
+    if fmt == "mp3" and not info["has_audio"]:
+        raise HTTPException(400, "This file has no sound")
+    out = _edit_out_path(p, fmt)
+    cmd, out_len = _edit_command(ff, p, info, ops, out, fmt)
+    while len(_edit_jobs) >= _EDIT_JOB_CAP:
+        _edit_jobs.pop(next(iter(_edit_jobs)))
+    job_id = uuid.uuid4().hex
+    _edit_jobs[job_id] = {"status": "running", "pct": 0, "out_path": str(out), "out_name": out.name, "error": ""}
+    threading.Thread(target=_edit_run, args=(job_id, cmd, out_len, out), daemon=True).start()
+    return {"id": job_id, "out_path": str(out), "out_name": out.name}
+
+
+def _edit_job_public(job_id: str) -> dict:
+    j = _edit_jobs.get(job_id)
+    if not j:
+        raise HTTPException(404, "No such export")
+    return {k: v for k, v in j.items() if k != "proc"} | {"id": job_id}
+
+
+@api.get("/edit/export/{job_id}")
+def edit_export_status(job_id: str):
+    return _edit_job_public(job_id)
+
+
+@api.post("/edit/export/{job_id}/cancel")
+def edit_export_cancel(job_id: str):
+    j = _edit_jobs.get(job_id)
+    if not j:
+        raise HTTPException(404, "No such export")
+    if j.get("status") == "running":
+        j["status"] = "canceled"
+        proc = j.get("proc")
+        if proc:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    return _edit_job_public(job_id)
 
 
 @api.get("/organize/thumb")

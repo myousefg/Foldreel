@@ -1,6 +1,6 @@
 # Foldreel Privacy Policy
 
-_Last updated November 26, 2026 — applies to the Foldreel desktop app and the Foldreel browser extension._
+_Last updated November 27, 2026 — applies to the Foldreel desktop app and the Foldreel browser extension._
 
 Foldreel runs entirely on your own computer. There are no accounts, no analytics, and no server
 operated by us. Nothing you download, convert, rename, or send through the extension is seen by
@@ -38,6 +38,9 @@ address (`127.0.0.1`). It never talks to any server operated by us or by anyone 
 | `contextMenus` | Adds the right-click "Send to Foldreel" menu item. |
 | `webRequest` | Identifies the real media URL behind a page's player, or its stream playlist (`.m3u8` or `.mpd`), so the hover button and context menu know what to send. |
 | Host permissions (`<all_urls>`) | The hover-to-send button, the pop-up blocker and the right-click menu need to work on any site you're browsing, not a fixed list. |
+
+When it starts, and when you open its popup or settings page, the extension tells the Foldreel app on your own
+computer that it is installed, sending only its version number. Nothing is sent to any server.
 
 The pop-up blocker looks at the page you are on to stop pop-up windows and hide invisible layers
 and links that sit over it to catch clicks. It runs entirely inside your browser. It does not

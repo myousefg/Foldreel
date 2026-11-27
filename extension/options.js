@@ -35,6 +35,11 @@ async function refreshConnection() {
   else setConn('bad', 'Pairing revoked');
 }
 
+// Opening this page counts as the extension checking in, which also finishes a "Link the
+// extension" started from Foldreel. The connection line follows the stored code as it changes.
+chrome.runtime.sendMessage({ type: 'status' }).then(refreshConnection, () => {});
+chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.secret) refreshConnection(); });
+
 $('pair-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const secret = codeInput.value.trim();

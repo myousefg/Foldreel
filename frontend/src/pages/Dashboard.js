@@ -1,9 +1,8 @@
 import { useEffect, useId, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  ArrowDownToLine, Eye, Loader2, AlertTriangle, ClipboardPaste, Bell, Link2, Folder, ChevronDown,
+  ArrowDownToLine, Eye, Loader2, AlertTriangle, ClipboardPaste, Bell, Link2, Folder, ChevronDown, FileCheck2, Waves,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -15,16 +14,14 @@ import JobCard from '@/components/JobCard';
 import PreviewDialog from '@/components/PreviewDialog';
 import { OutputFields } from '@/components/OutputSettings';
 import { PageSubtitle } from '@/components/PageHeader';
-import { Chip, SiteAvatar } from '@/components/kit';
+import { Chip } from '@/components/kit';
 import { useI18n } from '@/context/I18nProvider';
 import { useJobs } from '@/context/JobsProvider';
 import { useSettings } from '@/context/SettingsProvider';
 import { isElectron } from '@/lib/electron';
-import { presetsApi, thumbUrl, watchesApi } from '@/lib/api';
-import { fileCount, folderTail, parseSource, timeAgo } from '@/lib/jobMeta';
-import { useJobThumb } from '@/lib/useJobThumb';
+import { presetsApi, watchesApi } from '@/lib/api';
+import { folderTail } from '@/lib/jobMeta';
 import { snappy, listItem } from '@/lib/motion';
-import { sentenceCase } from '@/lib/utils';
 
 const MODES = ['auto', 'page', 'scan', 'video'];
 // Foldreel passes URLs straight to gallery-dl, so a mode is just a prefix.
@@ -53,6 +50,14 @@ function isYoutubeUrl(url) {
   catch { return false; }
 }
 
+// A link that points straight at a file, or at a video stream, needs no page scraping: the file is
+// fetched as it is. Said out loud, so people know pasting one works.
+const DIRECT_FILE = /\.(?:jpe?g|png|gif|webp|avif|bmp|tiff?|mp4|m4v|webm|mkv|mov|avi|wmv|flv|mp3|m4a|aac|flac|wav|ogg|opus)(?:[?#]|$)/i;
+const STREAM_LINK = /\.(?:m3u8|mpd)(?:[?#]|$)/i;
+const pathOf = (url) => url.replace(/^[a-z-]+:(?=https?:)/i, '');
+const isStreamLink = (url) => STREAM_LINK.test(pathOf(url));
+const isDirectFile = (url) => !isStreamLink(url) && DIRECT_FILE.test(pathOf(url));
+
 function isValidUrl(url) {
   try {
     const stripped = url.replace(/^[a-z-]+:(?=https?:)/i, '');
@@ -70,49 +75,9 @@ function applyMode(url, mode) {
   return p + url;
 }
 
-// A finished download as a card: its first picture, then where it came from.
-function RecentCard({ job, lang, onOpen, t }) {
-  const { ref, path: thumb } = useJobThumb(job);
-  const [failed, setFailed] = useState(false);
-  const { host, path } = parseSource(job.url);
-  const errored = job.status === 'error';
-  return (
-    <button
-      type="button" onClick={onOpen} data-testid={`recent-${job.id}`}
-      className="group text-start rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <span ref={ref} className="relative block aspect-[4/3] rounded-xl overflow-hidden bg-muted ring-1 ring-inset ring-border group-hover:ring-ring transition-shadow">
-        {thumb && !failed ? (
-          <img
-            src={thumbUrl(thumb, 640)} alt="" loading="lazy" draggable={false} onError={() => setFailed(true)}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-          />
-        ) : (
-          <span className="w-full h-full flex items-center justify-center"><SiteAvatar url={job.url} size={44} /></span>
-        )}
-        <span className="absolute start-2 bottom-2"><SiteAvatar url={job.url} size={22} className="shadow-sm" /></span>
-        {errored && (
-          <span className="absolute end-2 top-2 rounded-md bg-destructive px-1.5 py-0.5 text-[11px] font-medium text-destructive-foreground">
-            {sentenceCase(t('dashboard.status.error'), lang)}
-          </span>
-        )}
-      </span>
-      <span className="block mt-2 px-0.5">
-        <span className="block text-[13px] font-medium truncate" title={job.url}>
-          {host}{path && <span className="font-normal text-muted-foreground"> / {path}</span>}
-        </span>
-        <span className="block text-xs text-muted-foreground tabular-nums truncate">
-          {errored ? '' : `${fileCount(job.files_ok || 0, t, lang)} · `}{timeAgo(job.finished_at || job.created_at, lang)}
-        </span>
-      </span>
-    </button>
-  );
-}
-
 export default function Dashboard() {
-  const { t, lang } = useI18n();
-  const navigate = useNavigate();
-  const { active, queueView, finished, createJobs } = useJobs();
+  const { t } = useI18n();
+  const { active, queueView, createJobs } = useJobs();
   const { settings: s } = useSettings();
   const [text, setText] = useState('');
   const [mode, setMode] = useState('auto');
@@ -133,6 +98,8 @@ export default function Dashboard() {
   const modeMismatch = mode !== 'auto' && mode !== 'video' && urls.some(hasDedicatedExtractor);
   const hasInvalidUrl = urls.length > 0 && !urls.every(isValidUrl);
   const allYoutube = urls.length > 0 && urls.every(isYoutubeUrl);
+  const directCount = urls.filter(isDirectFile).length;
+  const streamCount = urls.filter(isStreamLink).length;
   const jobOptions = () => {
     const o = {};
     if (s?.default_range?.trim()) o.range = s.default_range.trim();
@@ -207,7 +174,16 @@ export default function Dashboard() {
     }
     setBusy(true);
     try {
-      const created = await createJobs(list.map(u => applyMode(u, submitMode)), opts);
+      // A stream playlist goes to the video engine with its own site as the referer, the same as a
+      // stream the extension finds; everything else goes through as one batch.
+      const streams = list.filter(isStreamLink);
+      const rest = list.filter(u => !isStreamLink(u));
+      const created = rest.length ? await createJobs(rest.map(u => applyMode(u, submitMode)), opts) : [];
+      for (const u of streams) {
+        let referer = '';
+        try { referer = `${new URL(pathOf(u)).origin}/`; } catch { /* validated above */ }
+        created.push(...await createJobs([u], { ...(opts || {}), ...(referer ? { referer } : {}) }));
+      }
       toast.success(t('dashboard.added', { count: created.length, s: created.length === 1 ? '' : 's' }));
       setText('');
     } catch {
@@ -219,7 +195,6 @@ export default function Dashboard() {
 
   const running = queueView.filter(j => j.status === 'running').length;
   const waiting = queueView.filter(j => j.status === 'queued').length;
-  const recent = finished.slice(0, 8);
   // Compact select that looks like a toolbar chip instead of a form field.
   const chipSelect = 'h-7 w-auto gap-1.5 border-0 bg-transparent px-2.5 text-xs font-medium text-muted-foreground shadow-none hover:bg-accent hover:text-foreground focus:ring-2';
 
@@ -354,6 +329,18 @@ export default function Dashboard() {
             {t('dashboard.invalidUrl')}
           </p>
         )}
+        {(directCount > 0 || streamCount > 0) && (
+          <p className="mt-2.5 flex items-start gap-1.5 text-xs text-muted-foreground" data-testid="link-kind-hint">
+            {streamCount > 0
+              ? <Waves className="w-3.5 h-3.5 mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+              : <FileCheck2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />}
+            <span>
+              {directCount > 0 && t('dashboard.directFile', { count: directCount })}
+              {directCount > 0 && streamCount > 0 && ' '}
+              {streamCount > 0 && t('dashboard.streamLink', { count: streamCount })}
+            </span>
+          </p>
+        )}
         {modeMismatch && (
           <p role="alert" className="mt-2.5 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
             <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
@@ -383,20 +370,6 @@ export default function Dashboard() {
                 </motion.div>
               ))}
             </AnimatePresence>
-          </div>
-        </section>
-      )}
-
-      {recent.length > 0 && (
-        <section aria-label={t('dashboard.recent')} className="space-y-3">
-          <div className="flex items-baseline justify-between px-3">
-            <h2 className="text-[13px] font-semibold">{t('dashboard.recent')}</h2>
-            <button type="button" onClick={() => navigate('/history')} className="text-xs text-muted-foreground hover:text-foreground">
-              {t('dashboard.viewLibrary')}
-            </button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-5 px-3">
-            {recent.map(job => <RecentCard key={job.id} job={job} lang={lang} onOpen={() => navigate(`/history?job=${job.id}`)} t={t} />)}
           </div>
         </section>
       )}

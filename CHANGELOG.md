@@ -3,16 +3,37 @@
 All notable changes to Foldreel are recorded here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
-
-### Changed
-- The Library is now translated into all 44 non-English languages: its views, columns, menus, dialogs,
-  duplicate finder and tags, plus the new "When deleting files" setting. These are machine translations
-  and should be reviewed by a native speaker.
-
-## [1.1.1] - 2026-11-26
+## [1.2.0] - 2026-11-27
 
 ### Added
+- **Edit**, a new page below Organize for basic photo, video and sound editing, laid out like a video editor:
+  tools on the left, a live preview, and a timeline underneath. Nothing is changed in place; Save a copy writes
+  a new file next to the original.
+  - Trim a video or sound by dragging the two handles on the timeline (or I and O at the playhead), with the
+    frames and the sound wave shown on the strip, a playhead you can scrub, and Space to play.
+  - Crop with a draggable frame and shapes (Free, Original, 1:1, 4:5, 9:16, 16:9, 4:3, 3:2), turn left or right,
+    and flip sideways or upside down.
+  - Brightness, contrast and colour, speed from 0.25x to 4x, volume up to 200%, remove the sound, and fade in
+    and out.
+  - Save as MP4, WebM, GIF, MP3 (sound only), or JPG, PNG and WebP for photos, at High, Balanced or Smaller
+    quality, with progress and Cancel. Undo and redo, and Reset all.
+  - Open a file from the Library with right-click, Edit.
+- **Direct links on Downloads.** A pasted link to a file (a picture, video or sound) says "Direct file link
+  detected", and a video stream link (`.m3u8`, `.mpd`) is downloaded with the video engine, joined into one video.
+- **Watch** shows the creator's own picture when the site gives one, a click on the link text copies it, and the
+  list of files shows where they were saved, with each file's name (click to copy its path).
+- **Extension linking.** Foldreel notices an installed extension by itself (it shows its version and when it last
+  checked in), and Link the extension connects it in one click. Typing a pairing code is still there. The
+  extension only works with the browser on the same computer.
+- **Engine** (Advanced) is rebuilt: Downloads at once, Speed limit, Wait between requests and Retries are menus
+  of the usual choices instead of typed codes, "Files per download" has Newest 10 to 200 or a custom range, and
+  there is Reset to defaults.
+- In the Library, a video now plays inside Foldreel when you double-click it.
+- The Library has a **select mode**: press and hold a file, or drag a box over files, and every click then picks
+  or drops a file. Cancel, or doing something with the selection (move, copy, delete, favorite, tags), ends it.
+  A single click, Ctrl and Shift still work as before, and a double click still opens a file.
+- The Library remembers the folder you were in when you leave and come back.
+
 - **Library**, a new page that works like a file manager for your download folder.
   - Browse by folder with a folder tree on the left, or choose Everything and group by month, folder,
     creator, series, site or type. Search, sort, and filter photos or videos.
@@ -27,7 +48,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
     tens of thousands of files.
 - **Delete** in the Library. By default it moves files to the Recycle Bin without asking. In Settings, Files you
   can switch it to delete permanently, which asks first, like Windows. Shift+Delete always asks.
-- **Pop-up and hidden-link blocker** in the browser extension (version 1.1.1). It stops pop-up and pop-under
+- **Pop-up and hidden-link blocker** in the browser extension (version 1.2.0). It stops pop-up and pop-under
   windows, and hides invisible layers and links that sit over a page to catch your clicks. On pages that already
   tried a pop-up it also hides floating ad boxes. It also hides ads that a script writes into a bare frame pinned
   above the page, such as a whole-window "offer" wall or a corner offer box, and closes a tab that such a page
@@ -42,11 +63,24 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   placeholder clip now return the real video.
 
 ### Changed
+- The Library is translated into all 44 non-English languages: its views, columns, menus, dialogs, duplicate
+  finder and tags, plus the new "When deleting files" setting. These are machine translations and should be
+  reviewed by a native speaker. The newest strings (Edit, the Engine page, extension linking) show in English
+  until they are translated.
+- Organize: Choose files and Choose folders are separate buttons (Windows cannot show both in one picker, so
+  choosing "files or folders" only ever listed folders). While you drag a row, the others shrink to one line so
+  the whole list fits on screen; they return to the chosen size on drop.
+- Downloads no longer shows a Recently finished section; History is the place for that.
 - The old **Library** page is now **History**.
 - Creator and series are remembered when a download finishes, even though the metadata files are deleted
   afterwards, so the Library can group by them.
 
 ### Fixed
+- History: switching between All, Done and Error could leave rows behind or pile them up. Days are now ordered by
+  when a download finished, so each day appears once.
+- Convert and Organize: dragging files over the window no longer stutters (the blurred cover was slow), and
+  dragging rows in Organize no longer jumps or overlaps when the page is scrolled.
+- Library: the highlight on a selected file in the first row or column was clipped at the edge.
 - Pasted stream links named `index` no longer overwrite or get skipped as "already downloaded"; each link
   keeps its own file, and running a link again replaces it.
 - The History panel shows pictures again when a download's recorded file name differs from the one on disk,

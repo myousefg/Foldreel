@@ -119,6 +119,29 @@ async function checkConnection() {
   }
 }
 
+// Tells Foldreel this extension exists, and picks up the pairing code by itself when the person
+// has pressed "Link the extension" in Foldreel (a ten minute window). Nothing but the extension
+// version is sent. Foldreel only answers this from a browser-extension origin, never a web page.
+let lastHello = 0;
+async function hello(force) {
+  if (!force && Date.now() - lastHello < 20000) return;
+  lastHello = Date.now();
+  try {
+    const secret = await getSecret();
+    const res = await fetch(`${API_HOST}/api/extension-hello`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version: chrome.runtime.getManifest().version, paired: !!secret }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data?.linked && typeof data.secret === 'string' && data.secret && data.secret !== secret) {
+      await chrome.storage.local.set({ secret: data.secret });
+    }
+  } catch (_) { /* Foldreel is not running */ }
+}
+chrome.runtime.onStartup.addListener(() => hello(true));
+
 // Some sites (usually ones gallery-dl/yt-dlp have no extractor for) point a
 // plain <video src="..."> straight at a CDN URL, or stream HLS/DASH through a
 // script, instead of exposing any download link - the same URL you'd
@@ -260,7 +283,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // keep the message channel open for the async sendResponse
   }
   if (msg?.type === 'status') {
-    checkConnection().then(sendResponse);
+    hello(true).then(checkConnection).then(sendResponse);
     return true;
   }
   if (msg?.type === 'captured-media') {
@@ -308,6 +331,7 @@ chrome.runtime.onInstalled.addListener(() => {
     title: 'Send this page to Foldreel',
     contexts: ['page'],
   });
+  hello(true);
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {

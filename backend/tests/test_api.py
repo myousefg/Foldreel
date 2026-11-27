@@ -660,3 +660,188 @@ def test_delete_mode_is_a_setting_that_only_takes_two_values(live):
     assert live.request("PUT", "/api/settings", {"delete_mode": "permanent"})[1]["delete_mode"] == "permanent"
     assert live.request("PUT", "/api/settings", {"delete_mode": "shred"})[0] == 400
     assert live.request("PUT", "/api/settings", {"delete_mode": "recycle"})[1]["delete_mode"] == "recycle"
+
+
+# ── extension check-in and one-click linking ─────────────────────────────────
+def test_extension_hello_only_answers_a_browser_extension(live):
+    hello = {"version": "1.2.3", "paired": False}
+    # A web page (or anything without an extension origin) is refused, with or without the app token.
+    assert live.request("POST", "/api/extension-hello", hello, token=False)[0] == 403
+    assert live.request("POST", "/api/extension-hello", hello, headers={"Origin": "https://evil.example"}, token=False)[0] == 403
+    ext = {"Origin": "chrome-extension://abcdefghijklmnop"}
+    status, body = live.request("POST", "/api/extension-hello", hello, headers=ext, token=False)
+    assert status == 200 and body["linked"] is False and "secret" not in body
+    _, s = live.request("GET", "/api/settings")
+    assert s["extension_version"] == "1.2.3" and s["extension_seen_at"]
+
+
+def test_extension_link_window_hands_over_the_code_once(live):
+    live.request("DELETE", "/api/extension-pairing")
+    ext = {"Origin": "chrome-extension://abcdefghijklmnop"}
+    # Closed window: nothing is handed over.
+    _, body = live.request("POST", "/api/extension-hello", {"version": "1.2.3"}, headers=ext, token=False)
+    assert body["linked"] is False
+    assert live.request("POST", "/api/extension-link")[0] == 200
+    _, body = live.request("POST", "/api/extension-hello", {"version": "1.2.3"}, headers=ext, token=False)
+    assert body["linked"] is True and len(body["secret"]) >= 32
+    # The code works on the extension routes, and the window is closed again.
+    assert live.request("GET", "/api/extension/ping", headers={"X-Foldreel-Extension-Token": body["secret"]}, token=False)[0] == 200
+    _, again = live.request("POST", "/api/extension-hello", {"version": "1.2.3"}, headers=ext, token=False)
+    assert again["linked"] is False and "secret" not in again
+    live.request("DELETE", "/api/extension-pairing")
+
+
+def test_extension_link_can_be_cancelled(live):
+    live.request("POST", "/api/extension-link")
+    assert live.request("DELETE", "/api/extension-link")[0] == 200
+    ext = {"Origin": "chrome-extension://abcdefghijklmnop"}
+    _, body = live.request("POST", "/api/extension-hello", {"version": "1"}, headers=ext, token=False)
+    assert body["linked"] is False
+
+
+# ── watched creator pictures ─────────────────────────────────────────────────
+def test_watch_avatar_endpoint_and_flag(live):
+    status, w = live.request("POST", "/api/watches", {"url": "https://example.org/u/someone", "interval_min": 60})
+    assert status == 200 and w["has_avatar"] is False
+    assert live.request("GET", f"/api/watches/{w['id']}/avatar")[0] == 404
+    (live.data / "avatars").mkdir(exist_ok=True)
+    (live.data / "avatars" / f"{w['id']}.img").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+    _, listed = live.request("GET", "/api/watches")
+    assert [x for x in listed if x["id"] == w["id"]][0]["has_avatar"] is True
+    assert live.request("GET", f"/api/watches/{w['id']}/avatar")[0] == 200
+    assert live.request("DELETE", f"/api/watches/{w['id']}")[0] == 200
+    assert not (live.data / "avatars" / f"{w['id']}.img").exists()
+
+
+# ── Edit page: probing, previews and exports (needs the bundled ffmpeg) ──────
+FFMPEG = next((str(p) for p in (REPO_BIN / "ffmpeg.exe", REPO_BIN / "ffmpeg") if p.exists()), None)
+needs_ffmpeg = pytest.mark.skipif(not FFMPEG, reason="bundled ffmpeg not present")
+
+
+def _make_clip(path: Path, seconds=3, size="320x240", audio=True):
+    cmd = [FFMPEG, "-y", "-f", "lavfi", "-i", f"testsrc=size={size}:rate=15:duration={seconds}"]
+    if audio:
+        cmd += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", "-c:a", "aac"]
+    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest", str(path)]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def _wait_export(live, job_id, timeout=60):
+    end = time.time() + timeout
+    while time.time() < end:
+        _, j = live.request("GET", f"/api/edit/export/{job_id}")
+        if j["status"] != "running":
+            return j
+        time.sleep(0.3)
+    raise AssertionError("export did not finish")
+
+
+def _q(p):
+    from urllib.parse import quote
+    return quote(str(p), safe="")
+
+
+@needs_ffmpeg
+def test_edit_probe_and_preview_images(live, tmp_path):
+    clip = tmp_path / "clip.mp4"
+    _make_clip(clip)
+    status, info = live.request("GET", f"/api/edit/info?path={_q(clip)}")
+    assert status == 200 and info["kind"] == "video" and info["has_audio"] is True
+    assert (info["width"], info["height"]) == (320, 240) and 2.5 < info["duration"] < 3.5
+    for url in (f"/api/edit/filmstrip?path={_q(clip)}&count=6&height=40", f"/api/edit/waveform?path={_q(clip)}&width=400&height=40"):
+        conn = http.client.HTTPConnection("127.0.0.1", live.port, timeout=30)
+        conn.request("GET", url, headers={"X-Foldreel-Token": TOKEN})
+        r = conn.getresponse()
+        body = r.read()
+        conn.close()
+        assert r.status == 200 and body[:4] == b"\x89PNG"
+    assert live.request("GET", f"/api/edit/info?path={_q(tmp_path / 'nope.mp4')}")[0] == 404
+    assert live.request("GET", f"/api/edit/info?path={_q(tmp_path)}")[0] == 404
+
+
+@needs_ffmpeg
+def test_media_endpoint_supports_seeking(live, tmp_path):
+    clip = tmp_path / "seek.mp4"
+    _make_clip(clip)
+    conn = http.client.HTTPConnection("127.0.0.1", live.port, timeout=15)
+    conn.request("GET", f"/api/media?path={_q(clip)}", headers={"X-Foldreel-Token": TOKEN, "Range": "bytes=0-99"})
+    r = conn.getresponse()
+    data = r.read()
+    conn.close()
+    assert r.status == 206 and len(data) == 100
+    assert live.request("GET", f"/api/media?path={_q(tmp_path / 'x.exe')}")[0] == 404
+
+
+@needs_ffmpeg
+def test_edit_export_trims_rotates_and_crops_a_video(live, tmp_path):
+    clip = tmp_path / "work.mp4"
+    _make_clip(clip, seconds=4)
+    ops = {"trim_start": 1.0, "trim_end": 3.0, "rotate": 90, "crop": [0, 0, 1, 0.5], "speed": 1.0, "volume": 0.5, "fade_out": 0.5}
+    status, job = live.request("POST", "/api/edit/export", {"path": str(clip), "ops": ops})
+    assert status == 200 and job["out_name"] == "work (edited).mp4"
+    done = _wait_export(live, job["id"])
+    assert done["status"] == "done", done
+    _, out = live.request("GET", f"/api/edit/info?path={_q(done['out_path'])}")
+    # 320x240 turned a quarter turn is 240x320; the top half of that is 240x160
+    assert (out["width"], out["height"]) == (240, 160)
+    assert 1.7 < out["duration"] < 2.4 and out["has_audio"] is True
+    # a second export does not overwrite the first
+    _, again = live.request("POST", "/api/edit/export", {"path": str(clip), "ops": {}})
+    assert again["out_name"] == "work (edited 2).mp4"
+    _wait_export(live, again["id"])
+
+
+@needs_ffmpeg
+def test_edit_export_speed_mute_and_audio_only(live, tmp_path):
+    clip = tmp_path / "fast.mp4"
+    _make_clip(clip, seconds=4)
+    _, job = live.request("POST", "/api/edit/export", {"path": str(clip), "ops": {"speed": 2.0, "mute": True}})
+    done = _wait_export(live, job["id"])
+    assert done["status"] == "done", done
+    _, out = live.request("GET", f"/api/edit/info?path={_q(done['out_path'])}")
+    assert 1.6 < out["duration"] < 2.5 and out["has_audio"] is False
+    _, job = live.request("POST", "/api/edit/export", {"path": str(clip), "ops": {"format": "mp3", "trim_start": 1, "trim_end": 3}})
+    done = _wait_export(live, job["id"])
+    assert done["status"] == "done" and done["out_name"].endswith(".mp3"), done
+    _, out = live.request("GET", f"/api/edit/info?path={_q(done['out_path'])}")
+    assert out["kind"] == "audio" and 1.7 < out["duration"] < 2.4
+    silent = tmp_path / "silent.mp4"
+    _make_clip(silent, audio=False)
+    assert live.request("POST", "/api/edit/export", {"path": str(silent), "ops": {"format": "mp3"}})[0] == 400
+
+
+@needs_ffmpeg
+def test_edit_export_photo_crop_rotate_flip(live, tmp_path):
+    img = tmp_path / "pic.png"
+    subprocess.run([FFMPEG, "-y", "-f", "lavfi", "-i", "testsrc=size=400x200:rate=1:duration=1", "-frames:v", "1", str(img)], check=True, capture_output=True)
+    ops = {"rotate": 270, "flip_h": True, "crop": [0.25, 0.25, 0.5, 0.5], "brightness": 0.3, "contrast": 0.2, "saturation": -0.5, "format": "jpg"}
+    _, job = live.request("POST", "/api/edit/export", {"path": str(img), "ops": ops})
+    done = _wait_export(live, job["id"])
+    assert done["status"] == "done" and done["out_name"] == "pic (edited).jpg", done
+    _, out = live.request("GET", f"/api/edit/info?path={_q(done['out_path'])}")
+    # 400x200 turned is 200x400; half of each side is 100x200
+    assert out["kind"] == "image" and (out["width"], out["height"]) == (100, 200)
+    assert live.request("POST", "/api/edit/export", {"path": str(img), "ops": {"rotate": 45}})[0] == 400
+    assert live.request("POST", "/api/edit/export", {"path": str(tmp_path / "missing.png"), "ops": {}})[0] == 404
+
+
+def test_edit_command_builder_without_ffmpeg():
+    sys.path.insert(0, str(BACKEND_DIR))
+    import importlib
+    os.environ.setdefault("FOLDREEL_DATA", str(Path(os.environ.get("TEMP", "/tmp")) / "foldreel-edit-unit"))
+    srv = importlib.import_module("server")
+    info = {"kind": "video", "duration": 10.0, "has_audio": True}
+    ops = srv.EditOps(trim_start=2, trim_end=6, speed=4.0, fade_in=1, rotate=180)
+    cmd, out_len = srv._edit_command("ffmpeg", Path("a.mp4"), info, ops, Path("b.mp4"), "mp4")
+    joined = " ".join(cmd)
+    assert out_len == 1.0 and "-ss 2.000 -t 4.000" in joined
+    assert "hflip,vflip" in joined and "setpts=PTS/4.0000" in joined
+    assert "atempo=2.0,atempo=2.0000" in joined and "afade=t=in:st=0:d=0.500" in joined  # fade is capped to half the result
+    assert srv._edit_atempo(0.25) == "atempo=0.5,atempo=0.5000"
+
+
+def test_library_listing_says_whether_the_folder_exists(live):
+    _, top = live.request("GET", "/api/library")
+    assert top["folder_exists"] is True
+    _, gone = live.request("GET", "/api/library?folder=nothing%2Fhere")
+    assert gone["folder_exists"] is False and gone["total"] == 0

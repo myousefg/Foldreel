@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { ArrowDownToLine, History, Images, Settings, KeyRound, SlidersHorizontal, Bell, ArrowLeftRight, FolderTree } from 'lucide-react';
+import { ArrowDownToLine, History, Images, Settings, KeyRound, SlidersHorizontal, Bell, ArrowLeftRight, FolderTree, Scissors } from 'lucide-react';
 import { useI18n } from '@/context/I18nProvider';
 import { useJobs } from '@/context/JobsProvider';
 import { sentenceCase } from '@/lib/utils';
@@ -53,6 +53,7 @@ export default function Sidebar() {
         <div className="h-3" aria-hidden="true" />
         <NavItem to="/convert" icon={ArrowLeftRight} label={label('nav.convert')} testId="nav-convert" />
         <NavItem to="/organize" icon={FolderTree} label={label('nav.organize')} testId="nav-organize" />
+        <NavItem to="/edit" icon={Scissors} label={label('nav.edit')} testId="nav-edit" />
       </nav>
 
       <div className="px-2.5 pb-3 space-y-0.5">

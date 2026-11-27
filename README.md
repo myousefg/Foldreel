@@ -38,7 +38,7 @@ Four tools in one app, sharing one queue, library, and set of settings:
 - **Download** full-resolution photos, videos, and galleries from 300+ sites.
 - **Convert** photos and videos (HEIC, MOV, and more) to JPG, PNG, WebP, MP4, or GIF. Save a single frame of a video as a picture.
 - **Organize** files and folders with bulk renaming, in whatever order you drag them.
-- **Edit** photos, videos and sounds: trim on a timeline, crop, turn, flip, adjust colour, change speed and volume, then save a copy. The original is never changed.
+- **Edit** photos, videos and sounds: trim on a timeline, crop, turn, flip, looks and colour, text, speed and volume, then save a copy or a single frame.
 - **Watch** a page on a schedule so new posts download themselves.
 
 ### Downloading

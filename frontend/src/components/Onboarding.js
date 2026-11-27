@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LayoutDashboard, KeyRound, Wrench, Cog, History as HistoryIcon, Sparkles, Bell, ArrowLeftRight, FolderTree } from 'lucide-react';
+import { ArrowDownToLine, Images, KeyRound, SlidersHorizontal, Settings as SettingsIcon, History as HistoryIcon, Sparkles, Bell, ArrowLeftRight, FolderTree, Scissors } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -18,13 +18,15 @@ export function markIntroDone() {
 
 const STEPS = [
   { key: 'welcome', icon: Sparkles, to: '/' },
-  { key: 'dashboard', icon: LayoutDashboard, to: '/' },
+  { key: 'dashboard', icon: ArrowDownToLine, to: '/' },
+  { key: 'library', icon: Images, to: '/library' },
   { key: 'history', icon: HistoryIcon, to: '/history' },
   { key: 'watch', icon: Bell, to: '/watch' },
   { key: 'convert', icon: ArrowLeftRight, to: '/convert' },
   { key: 'organize', icon: FolderTree, to: '/organize' },
-  { key: 'settings', icon: Wrench, to: '/settings' },
-  { key: 'advanced', icon: Cog, to: '/advanced' },
+  { key: 'edit', icon: Scissors, to: '/edit' },
+  { key: 'settings', icon: SettingsIcon, to: '/settings' },
+  { key: 'advanced', icon: SlidersHorizontal, to: '/advanced' },
   { key: 'sites', icon: KeyRound, to: '/sites' },
 ];
 

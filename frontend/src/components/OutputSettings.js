@@ -22,8 +22,8 @@ export const NAME_TOKEN_TEXT = {
   category: '{category}', id: '{id}', num: '{num}', filename: '{filename}',
   extension: '{extension}', title: '{title}', date: '{date:%Y%m%d}', user: '{user[name]}',
 };
-const PATH_TOKENS = ['category', 'user', 'subcategory', 'date', 'type'];
-const PATH_TOKEN_TEXT = {
+export const PATH_TOKENS = ['category', 'user', 'subcategory', 'date', 'type'];
+export const PATH_TOKEN_TEXT = {
   category: '{category}', user: '{user[name]}', subcategory: '{subcategory}', date: '{date:%Y-%m}',
   type: '{type}',
 };

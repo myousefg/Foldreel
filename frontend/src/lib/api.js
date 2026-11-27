@@ -35,7 +35,7 @@ export const jobsApi = {
   retry:  (id)            => api.post(`/jobs/${id}/retry`).then(r => r.data),
   remove: (id)            => api.delete(`/jobs/${id}`).then(r => r.data),
   deleteFiles: (id)       => api.delete(`/jobs/${id}/files`).then(r => r.data),
-  clearFinished: ()       => api.delete('/jobs').then(r => r.data),
+  clearFinished: (status) => api.delete('/jobs', { params: status ? { status } : {} }).then(r => r.data),
 };
 
 export const libraryApi = {

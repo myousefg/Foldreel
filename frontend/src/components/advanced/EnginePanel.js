@@ -110,7 +110,7 @@ export default function EnginePanel() {
             <Button size="sm" variant="outline" className="h-7" onClick={() => update({ max_concurrent: 2 })}>{t('engine.resume')}</Button>
           </div>
         )}
-        <Row title={t('engine.speedLimit')} desc={t('engine.speedLimitDesc')}>
+        <Row title={t('engine.speedLimit')}>
           <Choice
             value={s.rate_limit || ''} label={t('engine.unlimited')} testId="engine-speed"
             options={SPEEDS.map((v) => ({ value: v, label: speedText(v, t) }))}
@@ -124,7 +124,7 @@ export default function EnginePanel() {
             onChange={(v) => update({ sleep_request: Number(v) })}
           />
         </Row>
-        <Row title={t('engine.retries')} desc={t('engine.retriesDesc')}>
+        <Row title={t('engine.retries')}>
           <Choice
             value={Number(s.retries ?? 4)} label="4" testId="engine-retries"
             options={RETRIES.map((v) => ({ value: v, label: v ? t('engine.times', { n: v }) : t('engine.never') }))}
@@ -155,7 +155,7 @@ export default function EnginePanel() {
       </Section>
 
       <div className="flex items-center justify-between px-3 pt-1">
-        <p className="text-xs text-muted-foreground">{t('engine.resetDesc')}</p>
+        <span />
         <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground" onClick={reset} data-testid="engine-reset">
           <RotateCcw className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('engine.reset')}
         </Button>

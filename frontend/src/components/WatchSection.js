@@ -14,6 +14,8 @@ import { jobsApi, thumbUrl, watchAvatarUrl } from '@/lib/api';
 import { isElectron } from '@/lib/electron';
 import { snappy } from '@/lib/motion';
 import MediaLightbox from '@/components/MediaLightbox';
+import WatchFolderMenu from '@/components/WatchFolderMenu';
+import { useSettings } from '@/context/SettingsProvider';
 
 const INTERVALS = [15, 30, 60, 180, 360, 720, 1440];
 
@@ -72,7 +74,7 @@ function Thumb({ f, onOpen }) {
   );
 }
 
-function WatchRow({ w, active, onUpdate, onRemove, onCheckNow }) {
+function WatchRow({ w, active, known, defaultDir, onUpdate, onRemove, onCheckNow }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState(null);
@@ -123,6 +125,10 @@ function WatchRow({ w, active, onUpdate, onRemove, onCheckNow }) {
             {w.enabled ? status : `${t('watch.paused')} · ${status}`}
           </p>
         </div>
+        <WatchFolderMenu
+          value={w.options?.dest_dir || ''} defaultDir={defaultDir} known={known} testId={`watch-dest-${w.id}`}
+          onChange={p => onUpdate(w.id, { dest_dir: p })}
+        />
         <Select value={String(w.interval_min)} onValueChange={v => onUpdate(w.id, { interval_min: Number(v) })}>
           <SelectTrigger className="w-28 h-8 text-xs" data-testid={`watch-interval-${w.id}`} aria-label={t('watch.interval.60')}><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -231,6 +237,8 @@ function WatchRow({ w, active, onUpdate, onRemove, onCheckNow }) {
 export default function WatchSection({ watches, onUpdate, onRemove, onCheckNow, emptyMessage }) {
   const { t } = useI18n();
   const { active } = useJobs();
+  const { settings } = useSettings();
+  const known = useMemo(() => [...new Set(watches.map(w => w.options?.dest_dir).filter(Boolean))], [watches]);
   const activeWatchIds = useMemo(
     () => new Set(active.filter(j => j.watch_id).map(j => j.watch_id)),
     [active],
@@ -257,7 +265,7 @@ export default function WatchSection({ watches, onUpdate, onRemove, onCheckNow, 
     <div className="list">
       {watches.map(w => (
         <WatchRow
-          key={w.id} w={w} active={activeWatchIds.has(w.id)}
+          key={w.id} w={w} active={activeWatchIds.has(w.id)} known={known} defaultDir={settings?.output_dir || ''}
           onUpdate={update} onRemove={remove} onCheckNow={checkNow}
         />
       ))}

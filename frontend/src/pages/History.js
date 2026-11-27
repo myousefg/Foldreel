@@ -21,7 +21,7 @@ import { useJobThumb } from '@/lib/useJobThumb';
 function LibraryRow({ job, selected, onSelect, lang, t }) {
   const { ref, path: thumb } = useJobThumb(job);
   const { host, path } = parseSource(job.url);
-  const flagged = job.hint === 'auth' || job.hint === 'cookies_locked' || job.hint === 'rate_limited';
+  const flagged = job.hint === 'auth' || job.hint === 'cookies_locked' || job.hint === 'rate_limited' || job.hint === 'blocked';
   const result = job.files_error > 0 && !job.files_ok
     ? `${job.files_error} ${t('dashboard.errors')}`
     : `${job.total > 0 ? `${job.files_ok || 0}/${job.total} ${t('dashboard.files')}` : fileCount(job.files_ok || 0, t, lang)}${job.files_skipped ? ` · ${job.files_skipped} ${t('dashboard.skipped')}` : ''}`;
@@ -83,7 +83,14 @@ export default function History() {
   const selectedId = params.get('job');
   const selected = selectedId ? finished.find(j => j.id === selectedId) : null;
   const select = (id) => setParams(id ? { job: id } : {}, { replace: true });
-  const doClear = async () => { await clearFinished(); select(null); toast.success(t('history.clear')); };
+  // The clear button follows the filter: under Done it clears only the done ones, and so on.
+  const clearKey = { all: 'clear', done: 'clearDone', error: 'clearError', canceled: 'clearCanceled' }[status];
+  const clearCount = status === 'all' ? counts.all : counts[status];
+  const doClear = async () => {
+    await clearFinished(status === 'all' ? undefined : status);
+    if (!selected || status === 'all' || selected.status === status) select(null);
+    toast.success(t(`history.${clearKey}`));
+  };
 
   return (
     <div className="space-y-5 pb-12">
@@ -98,13 +105,13 @@ export default function History() {
         </div>
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8" disabled={!finished.length}>
-              <Trash2 className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('history.clear')}
+            <Button variant="outline" size="sm" className="h-8" disabled={!clearCount} data-testid="history-clear">
+              <Trash2 className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t(`history.${clearKey}`)}
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>{t('history.clearConfirm')}</AlertDialogTitle>
+              <AlertDialogTitle>{t(`history.${clearKey}Confirm`, { count: clearCount })}</AlertDialogTitle>
               <AlertDialogDescription>{t('history.clearConfirmDesc')}</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

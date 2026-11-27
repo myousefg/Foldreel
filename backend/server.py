@@ -871,6 +871,11 @@ _RATE_LIMIT = re.compile(
     re.I,
 )
 
+# TikTok's bot protection answers the downloader with 403 (or a missing profile id) even for public pages,
+# on and off. It is not a login problem, so the hint must not send people off to set up cookies.
+_BLOCKED_BY_SITE = re.compile(
+    r"http error 403|403: forbidden|unable to extract secondary user id|attempting impersonation", re.I)
+
 # gallery-dl can't open a Chromium cookie DB while that browser is running
 # (exclusive file lock). Distinct from a plain auth failure; the fix is
 # different (close the browser / use Firefox / cookies.txt).
@@ -1322,7 +1327,7 @@ class JobManager:
             job_opts = json.loads(row.get("options_json") or "{}")
         except Exception:
             job_opts = {}
-        dest = _abs_output(settings.get("output_dir"))
+        dest = _custom_dest(job_opts) or _abs_output(settings.get("output_dir"))
         try:
             Path(dest).mkdir(parents=True, exist_ok=True)
         except Exception:
@@ -1338,14 +1343,18 @@ class JobManager:
 
         base_cfg = write_gdl_config()
         job_config_path = resolve_preset_config(job_opts, job_id, base_cfg=base_cfg)
+        overrides: dict = {}
         if row.get("watch_id"):
             # A watch that isn't strictly incremental defeats its own point -
             # every tick would silently re-download the whole gallery again.
             # Force this regardless of the global "Skip already-downloaded"
             # toggle or anything a preset layered on top.
-            watch_overrides = {"extractor": {"archive": str(ARCHIVE_PATH), "skip": True}}
+            overrides = {"extractor": {"archive": str(ARCHIVE_PATH), "skip": True}}
+        if _custom_dest(job_opts):
+            overrides.setdefault("extractor", {})["base-directory"] = dest
+        if overrides:
             layer_base = json.loads(job_config_path.read_text(encoding="utf-8")) if job_config_path else base_cfg
-            job_config_path = write_job_config(job_id, watch_overrides, base_cfg=layer_base)
+            job_config_path = write_job_config(job_id, overrides, base_cfg=layer_base)
         argv = build_argv(url, settings, job_opts, config_path=job_config_path)
 
         db_run(
@@ -1472,6 +1481,8 @@ class JobManager:
                 hint = "cookies_locked"
             elif _RATE_LIMIT.search(blob) or _RATE_LIMIT.search(tail):
                 hint = "rate_limited"
+            elif _site_for_url(url) == "tiktok" and (_BLOCKED_BY_SITE.search(blob) or _BLOCKED_BY_SITE.search(tail)):
+                hint = "blocked"
             elif _AUTH_ERR.search(blob) or _AUTH_ERR.search(tail):
                 hint = "auth"
             else:
@@ -2526,6 +2537,7 @@ class WatchIn(BaseModel):
 class WatchPatch(BaseModel):
     enabled: Optional[bool] = None
     interval_min: Optional[int] = None
+    dest_dir: Optional[str] = None   # None leaves it alone, "" goes back to the normal download folder
 
 
 class CookieImportIn(BaseModel):
@@ -2900,6 +2912,17 @@ def list_watches():
     return [_watch_public(r) for r in db_all("SELECT * FROM watches ORDER BY created_at DESC")]
 
 
+def _checked_dest(raw) -> str:
+    """A folder for a watch to save to: absolute, and not an existing file. "" means the normal folder."""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    p = Path(text).expanduser()
+    if not p.is_absolute() or p.is_file():
+        raise HTTPException(400, "Pick a folder")
+    return str(p)
+
+
 @api.post("/watches")
 def create_watch(body: WatchIn):
     url = body.url.strip()
@@ -2907,10 +2930,16 @@ def create_watch(body: WatchIn):
         raise HTTPException(400, "URL is required")
     interval = max(5, int(body.interval_min or 60))
     watch_id = uuid.uuid4().hex
+    opts = dict(body.options or {})
+    if "dest_dir" in opts:
+        opts["dest_dir"] = _checked_dest(opts.get("dest_dir"))
+        if not opts["dest_dir"]:
+            opts.pop("dest_dir")
     db_run(
         "INSERT INTO watches (id, url, options_json, interval_min, created_at) VALUES (?, ?, ?, ?, ?)",
-        (watch_id, url, json.dumps(body.options or {}), interval, _now()),
+        (watch_id, url, json.dumps(opts), interval, _now()),
     )
+    _watch_roots_cache["at"] = 0.0
     return _watch_public(db_one("SELECT * FROM watches WHERE id=?", (watch_id,)))
 
 
@@ -2934,6 +2963,18 @@ def update_watch(watch_id: str, body: WatchPatch):
         db_run("UPDATE watches SET enabled=? WHERE id=?", (1 if body.enabled else 0, watch_id))
     if body.interval_min is not None:
         db_run("UPDATE watches SET interval_min=? WHERE id=?", (max(5, int(body.interval_min)), watch_id))
+    if body.dest_dir is not None:
+        dest = _checked_dest(body.dest_dir)
+        try:
+            opts = json.loads(row.get("options_json") or "{}")
+        except ValueError:
+            opts = {}
+        if dest:
+            opts["dest_dir"] = dest
+        else:
+            opts.pop("dest_dir", None)
+        db_run("UPDATE watches SET options_json=? WHERE id=?", (json.dumps(opts), watch_id))
+        _watch_roots_cache["at"] = 0.0
     return _watch_public(db_one("SELECT * FROM watches WHERE id=?", (watch_id,)))
 
 
@@ -3250,9 +3291,45 @@ _IMG_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".avif", ".jxl", "
 _VID_EXT = {".mp4", ".webm", ".mkv", ".mov", ".m4v", ".gifv", ".hevc"}
 
 
+def _custom_dest(opts: Optional[dict]) -> str:
+    """A job's own destination folder (a Watch can have one), or "" for the normal download folder."""
+    raw = str((opts or {}).get("dest_dir") or "").strip()
+    if not raw:
+        return ""
+    try:
+        p = Path(raw).expanduser()
+    except Exception:
+        return ""
+    return str(p) if p.is_absolute() else ""
+
+
+_watch_roots_cache: dict = {"at": 0.0, "roots": []}
+
+
+def _watch_dest_roots() -> List[Path]:
+    """The folders watches save to, so previews and "open folder" accept files there. Cached for a few
+    seconds because every thumbnail asks."""
+    now = time.monotonic()
+    if now - _watch_roots_cache["at"] < 5:
+        return _watch_roots_cache["roots"]
+    roots: List[Path] = []
+    try:
+        for r in db_all("SELECT options_json FROM watches"):
+            try:
+                d = _custom_dest(json.loads(r.get("options_json") or "{}"))
+            except ValueError:
+                continue
+            if d:
+                roots.append(Path(d).resolve())
+    except Exception:
+        pass
+    _watch_roots_cache.update(at=now, roots=roots)
+    return roots
+
+
 def _output_roots() -> List[Path]:
     roots = [Path(_abs_output(get_settings().get("output_dir")))]
-    return [r.resolve() for r in roots if str(r)]
+    return [r.resolve() for r in roots if str(r)] + _watch_dest_roots()
 
 
 def _under_output(p: Path) -> bool:
@@ -4973,9 +5050,14 @@ async def delete_job_files(job_id: str):
 
 
 @api.delete("/jobs")
-def clear_finished():
-    rows = db_all("SELECT id, log_path FROM jobs WHERE status IN ('done','error','canceled')")
-    db_run("DELETE FROM jobs WHERE status IN ('done','error','canceled')")
+def clear_finished(status: Optional[str] = None):
+    """Remove finished jobs from History. `status` (done, error or canceled) clears only those."""
+    if status is not None and status not in ("done", "error", "canceled"):
+        raise HTTPException(400, "status must be done, error or canceled")
+    kinds = (status,) if status else ("done", "error", "canceled")
+    marks = ",".join("?" * len(kinds))
+    rows = db_all(f"SELECT id, log_path FROM jobs WHERE status IN ({marks})", kinds)
+    db_run(f"DELETE FROM jobs WHERE status IN ({marks})", kinds)
     for r in rows:
         _cleanup_job_artifacts(r.get("id"), r.get("log_path"))
     return {"ok": True}
@@ -5147,6 +5229,15 @@ def _edit_probe(p: Path) -> dict:
     return out
 
 
+class EditText(BaseModel):
+    text: str = ""
+    x: float = 0.5                        # centre of the text, as a fraction of the picture
+    y: float = 0.85
+    size: float = 0.07                    # height of a line, as a fraction of the picture height
+    color: str = "#ffffff"
+    box: bool = False                     # a dark box behind the text
+
+
 class EditOps(BaseModel):
     trim_start: float = 0.0
     trim_end: Optional[float] = None
@@ -5154,14 +5245,20 @@ class EditOps(BaseModel):
     flip_h: bool = False
     flip_v: bool = False
     crop: Optional[List[float]] = None    # x, y, width, height as fractions of the turned picture
+    tone: str = "none"                    # none, bw, sepia, warm or cool
     brightness: float = 0.0               # -1 .. 1
     contrast: float = 0.0
     saturation: float = 0.0
     speed: float = 1.0                    # 0.25 .. 4
     volume: float = 1.0                   # 0 .. 2
     mute: bool = False
-    fade_in: float = 0.0
+    fade_in: float = 0.0                  # sound
     fade_out: float = 0.0
+    v_fade_in: float = 0.0                # picture
+    v_fade_out: float = 0.0
+    texts: List[EditText] = []
+    height: Optional[int] = None          # the longest the result may be from top to bottom, in pixels
+    frame_at: Optional[float] = None      # save the picture at this second of a video, instead of the video
     format: str = "auto"                  # auto mp4 webm gif mp3 jpg png webp
     quality: str = "high"                 # high balanced small
 
@@ -5169,6 +5266,16 @@ class EditOps(BaseModel):
 class EditExportIn(BaseModel):
     path: str
     ops: EditOps
+
+
+# Colour looks: each one is a 3x3 matrix on red, green and blue. The page draws the same matrices.
+_EDIT_TONES = {
+    "bw": ((0.2126, 0.7152, 0.0722), (0.2126, 0.7152, 0.0722), (0.2126, 0.7152, 0.0722)),
+    "sepia": ((0.393, 0.769, 0.189), (0.349, 0.686, 0.168), (0.272, 0.534, 0.131)),
+    "warm": ((1.10, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 0.86)),
+    "cool": ((0.88, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.10)),
+}
+_EDIT_STILL_FORMATS = ("jpg", "png", "webp")
 
 
 def _edit_atempo(speed: float) -> str:
@@ -5185,26 +5292,62 @@ def _edit_atempo(speed: float) -> str:
 
 def _edit_out_format(kind: str, ops: EditOps, src: Path) -> str:
     f = (ops.format or "auto").lower()
-    if kind == "image":
-        if f in ("jpg", "png", "webp"):
+    if kind == "image" or (kind == "video" and ops.frame_at is not None):
+        if f in _EDIT_STILL_FORMATS:
             return f
         ext = src.suffix.lower().lstrip(".")
-        return {"jpeg": "jpg"}.get(ext, ext) if ext in ("jpg", "jpeg", "png", "webp") else "png"
+        if kind == "image" and ext in ("jpg", "jpeg", "png", "webp"):
+            return {"jpeg": "jpg"}.get(ext, ext)
+        return "png"
     if kind == "audio":
         return "mp3"
     return f if f in ("mp4", "webm", "gif", "mp3") else "mp4"
 
 
-def _edit_command(ff: str, src: Path, info: dict, ops: EditOps, out: Path, fmt: str) -> Tuple[List[str], float]:
-    """The ffmpeg command for these edits, and how long the result will be (seconds; 0 for a picture)."""
+def _edit_font() -> Optional[str]:
+    win = os.environ.get("WINDIR", r"C:\Windows")
+    for cand in (os.path.join(win, "Fonts", "segoeui.ttf"), os.path.join(win, "Fonts", "arial.ttf"),
+                 "/System/Library/Fonts/Helvetica.ttc", "/Library/Fonts/Arial.ttf",
+                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+def _edit_filter_path(p: str) -> str:
+    """A file path inside a filter option: forward slashes, the drive colon escaped, and quoted."""
+    return "'" + p.replace("\\", "/").replace("'", "").replace(":", "\\:") + "'"
+
+
+def _edit_frame_size(info: dict, ops: EditOps) -> Tuple[int, int]:
+    w, h = int(info.get("width") or 0), int(info.get("height") or 0)
+    if int(ops.rotate or 0) % 180:
+        w, h = h, w
+    c = ops.crop
+    if c and len(c) == 4:
+        x, y, cw, ch = [min(max(float(v), 0.0), 1.0) for v in c]
+        w, h = max(2, int(w * min(cw, 1 - x) / 2) * 2), max(2, int(h * min(ch, 1 - y) / 2) * 2)
+    return w, h
+
+
+def _edit_command(ff: str, src: Path, info: dict, ops: EditOps, out: Path, fmt: str) -> Tuple[List[str], float, List[Path]]:
+    """The ffmpeg command for these edits, how long the result will be (seconds; 0 for a picture), and
+    the small files it reads that can be deleted afterwards."""
     kind = info["kind"]
+    still = kind == "image" or (kind == "video" and ops.frame_at is not None)
     dur = float(info.get("duration") or 0)
-    start = max(0.0, min(float(ops.trim_start or 0), max(dur - 0.05, 0.0))) if kind != "image" else 0.0
-    end = float(ops.trim_end) if ops.trim_end else dur
-    end = min(max(end, start + 0.05), dur) if dur else end
-    span = max(end - start, 0.0) if kind != "image" else 0.0
-    speed = min(max(float(ops.speed or 1), 0.25), 4.0) if kind != "image" else 1.0
-    out_len = span / speed if span else 0.0
+    temps: List[Path] = []
+    if still:
+        start, span, speed, out_len = 0.0, 0.0, 1.0, 0.0
+        seek = min(max(float(ops.frame_at or 0), 0.0), max(dur - 0.05, 0.0)) if kind == "video" else 0.0
+    else:
+        start = max(0.0, min(float(ops.trim_start or 0), max(dur - 0.05, 0.0)))
+        end = float(ops.trim_end) if ops.trim_end else dur
+        end = min(max(end, start + 0.05), dur) if dur else end
+        span = max(end - start, 0.0)
+        speed = min(max(float(ops.speed or 1), 0.25), 4.0) if kind == "video" else min(max(float(ops.speed or 1), 0.25), 4.0)
+        out_len = span / speed if span else 0.0
+        seek = 0.0
 
     vf: List[str] = []
     if kind in ("image", "video"):
@@ -5225,20 +5368,52 @@ def _edit_command(ff: str, src: Path, info: dict, ops: EditOps, out: Path, fmt: 
             w, h = min(w, 1.0 - x), min(h, 1.0 - y)
             if w > 0.001 and h > 0.001 and (w < 0.999 or h < 0.999 or x > 0.001 or y > 0.001):
                 vf.append(f"crop=trunc(iw*{w:.5f}/2)*2:trunc(ih*{h:.5f}/2)*2:trunc(iw*{x:.5f}):trunc(ih*{y:.5f})")
+        m = _EDIT_TONES.get(ops.tone or "none")
+        if m:
+            names = ("rr", "rg", "rb", "gr", "gg", "gb", "br", "bg", "bb")
+            vf.append("colorchannelmixer=" + ":".join(f"{n}={v:.4f}" for n, v in zip(names, (c for row in m for c in row))))
         b, ct, sa = (min(max(float(v), -1.0), 1.0) for v in (ops.brightness, ops.contrast, ops.saturation))
         if b or ct or sa:
             vf.append(f"eq=brightness={b * 0.2:.4f}:contrast={1 + ct * 0.5:.4f}:saturation={1 + sa:.4f}")
-        if kind == "video" and speed != 1.0:
+        texts = [t for t in (ops.texts or [])[:6] if (t.text or "").strip()]
+        if texts:
+            font = _edit_font()
+            if not font:
+                raise HTTPException(400, "No font was found for the text")
+            _, fh = _edit_frame_size(info, ops)
+            for i, t in enumerate(texts):
+                tf = JOB_LOG_DIR / f"edit_{uuid.uuid4().hex}_{i}.txt"
+                tf.write_text(t.text.strip()[:300], encoding="utf-8")
+                temps.append(tf)
+                color = re.sub(r"[^0-9a-fA-F]", "", t.color or "ffffff")[:6].ljust(6, "f")
+                size = max(8, int(min(max(float(t.size), 0.02), 0.4) * fh))
+                x = min(max(float(t.x), 0.0), 1.0)
+                y = min(max(float(t.y), 0.0), 1.0)
+                box = ":box=1:boxcolor=black@0.55:boxborderw=" + str(max(4, size // 4)) if t.box else ""
+                vf.append(f"drawtext=fontfile={_edit_filter_path(font)}:textfile={_edit_filter_path(str(tf))}:expansion=none"
+                          f":fontsize={size}:fontcolor=0x{color}:x=w*{x:.4f}-text_w/2:y=h*{y:.4f}-text_h/2{box}")
+        if kind == "video" and not still and speed != 1.0:
             vf.append(f"setpts=PTS/{speed:.4f}")
+        if kind == "video" and not still and out_len:
+            vi = min(max(float(ops.v_fade_in or 0), 0.0), out_len / 2)
+            vo = min(max(float(ops.v_fade_out or 0), 0.0), out_len / 2)
+            if vi > 0.01:
+                vf.append(f"fade=t=in:st=0:d={vi:.3f}")
+            if vo > 0.01:
+                vf.append(f"fade=t=out:st={max(out_len - vo, 0):.3f}:d={vo:.3f}")
+        if ops.height and fmt != "mp3":
+            vf.append(f"scale=-2:'min({int(min(max(ops.height, 64), 4320))},ih)':flags=lanczos")
 
     crf = {"high": 18, "balanced": 23, "small": 28}.get(ops.quality, 18)
     cmd = [ff, "-hide_banner", "-y", "-nostats", "-progress", "pipe:1"]
-    if kind != "image" and (start > 0 or (end and dur and end < dur - 0.01)):
+    if kind == "video" and still and seek > 0:
+        cmd += ["-ss", f"{seek:.3f}"]
+    elif not still and (start > 0 or (span and dur and start + span < dur - 0.01)):
         cmd += ["-ss", f"{start:.3f}", "-t", f"{span:.3f}"]
     cmd += ["-i", str(src)]
 
     af: List[str] = []
-    want_audio = kind in ("video", "audio") and info.get("has_audio") and not ops.mute and fmt in ("mp4", "webm", "mp3")
+    want_audio = kind in ("video", "audio") and not still and info.get("has_audio") and not ops.mute and fmt in ("mp4", "webm", "mp3")
     if want_audio:
         vol = min(max(float(ops.volume), 0.0), 2.0)
         if abs(vol - 1.0) > 0.001:
@@ -5255,9 +5430,9 @@ def _edit_command(ff: str, src: Path, info: dict, ops: EditOps, out: Path, fmt: 
     if fmt == "mp3":
         cmd += ["-vn"] + (["-af", ",".join(af)] if af else []) + ["-c:a", "libmp3lame", "-q:a", {"high": "2", "balanced": "4", "small": "6"}.get(ops.quality, "2")]
     elif fmt == "gif":
-        base = ",".join(vf + ["fps=15", "scale='min(480,iw)':-2:flags=lanczos"])
+        base = ",".join(vf + ["fps=15"] + ([] if ops.height else ["scale='min(480,iw)':-2:flags=lanczos"]))
         cmd += ["-an", "-vf", f"{base},split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse"]
-    elif fmt in ("jpg", "png", "webp"):
+    elif fmt in _EDIT_STILL_FORMATS:
         cmd += (["-vf", ",".join(vf)] if vf else []) + ["-frames:v", "1"]
         cmd += {"jpg": ["-q:v", "2"], "webp": ["-q:v", "80"], "png": []}[fmt]
     elif fmt == "webm":
@@ -5270,7 +5445,7 @@ def _edit_command(ff: str, src: Path, info: dict, ops: EditOps, out: Path, fmt: 
         cmd += (["-af", ",".join(af), "-c:a", "aac", "-b:a", "160k"] if want_audio and af else (["-c:a", "aac", "-b:a", "160k"] if want_audio else ["-an"]))
         cmd += ["-movflags", "+faststart"]
     cmd.append(str(out))
-    return cmd, out_len
+    return cmd, out_len, temps
 
 
 def _edit_out_path(src: Path, fmt: str) -> Path:
@@ -5287,7 +5462,7 @@ _edit_jobs: dict = {}
 _EDIT_JOB_CAP = 40
 
 
-def _edit_run(job_id: str, cmd: List[str], out_len: float, out: Path) -> None:
+def _edit_run(job_id: str, cmd: List[str], out_len: float, out: Path, temps: Optional[List[Path]] = None) -> None:
     job = _edit_jobs[job_id]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
@@ -5317,6 +5492,11 @@ def _edit_run(job_id: str, cmd: List[str], out_len: float, out: Path) -> None:
         job.update(status="error", error=str(e)[:300])
     finally:
         job.pop("proc", None)
+        for t in temps or []:
+            try:
+                t.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 @api.get("/media")
@@ -5404,12 +5584,12 @@ def edit_export(body: EditExportIn):
     if fmt == "mp3" and not info["has_audio"]:
         raise HTTPException(400, "This file has no sound")
     out = _edit_out_path(p, fmt)
-    cmd, out_len = _edit_command(ff, p, info, ops, out, fmt)
+    cmd, out_len, temps = _edit_command(ff, p, info, ops, out, fmt)
     while len(_edit_jobs) >= _EDIT_JOB_CAP:
         _edit_jobs.pop(next(iter(_edit_jobs)))
     job_id = uuid.uuid4().hex
     _edit_jobs[job_id] = {"status": "running", "pct": 0, "out_path": str(out), "out_name": out.name, "error": ""}
-    threading.Thread(target=_edit_run, args=(job_id, cmd, out_len, out), daemon=True).start()
+    threading.Thread(target=_edit_run, args=(job_id, cmd, out_len, out, temps), daemon=True).start()
     return {"id": job_id, "out_path": str(out), "out_name": out.name}
 
 

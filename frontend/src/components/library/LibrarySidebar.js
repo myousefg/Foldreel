@@ -62,7 +62,7 @@ export default function LibrarySidebar({ tree, place, folder, tag, onNavigate, o
   const root = useMemo(() => buildTree(tree?.dirs || []), [tree]);
 
   const drop = (target, key) => ({
-    onDragOver: (e) => { if (isLibraryDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; setOver(key); } },
+    onDragOver: (e) => { if (isLibraryDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = (e.ctrlKey || e.altKey) ? 'copy' : 'move'; setOver(key); } },
     onDragLeave: () => setOver((cur) => (cur === key ? null : cur)),
     onDrop: (e) => { if (isLibraryDrag(e)) { e.preventDefault(); setOver(null); onDropOn(target, e); } },
   });

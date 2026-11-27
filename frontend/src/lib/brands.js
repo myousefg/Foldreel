@@ -8,8 +8,11 @@ import {
   siDiscord, siNiconico,
 } from 'simple-icons';
 
+// Instagram is drawn in black and white like X, instead of its pink gradient colour.
+const instagramMono = { ...siInstagram, hex: '000000' };
+
 const BY_DOMAIN = {
-  'instagram.com': siInstagram, 'x.com': siX, 'twitter.com': siX, 'tiktok.com': siTiktok,
+  'instagram.com': instagramMono, 'x.com': siX, 'twitter.com': siX, 'tiktok.com': siTiktok,
   'youtube.com': siYoutube, 'youtu.be': siYoutube, 'reddit.com': siReddit, 'redd.it': siReddit,
   'pixiv.net': siPixiv, 'fanbox.cc': siPixiv, 'deviantart.com': siDeviantart,
   'tumblr.com': siTumblr, 'patreon.com': siPatreon, 'flickr.com': siFlickr,

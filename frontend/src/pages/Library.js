@@ -366,7 +366,7 @@ export default function Library() {
     const paths = readDrag(e);
     if (!paths?.length) return;
     // a folder can not go into itself
-    actions.paste(e.ctrlKey ? 'copy' : 'move', paths, destRel);
+    actions.paste((e.ctrlKey || e.altKey) ? 'copy' : 'move', paths, destRel);
   };
 
   const onSidebarDrop = (target, e) => {
@@ -401,6 +401,7 @@ export default function Library() {
       if (it) actions.favorite([it.path], !it.fav, [it.path]);
     },
     dragStart: (e, idx) => {
+      if (e.ctrlKey || e.metaKey || S.current.selectMode) { e.preventDefault(); return; } // that is sliding a selection
       const p = pathAt(idx);
       if (!p) { e.preventDefault(); return; }
       let paths = [...S.current.sel];
@@ -414,7 +415,7 @@ export default function Library() {
       const en = entryAt(idx);
       if (en?.type !== 'folder' || !isLibraryDrag(e)) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move';
+      e.dataTransfer.dropEffect = (e.ctrlKey || e.altKey) ? 'copy' : 'move';
       setDropOn(idx);
     },
     dragLeave: (e, idx) => setDropOn((cur) => (cur === idx ? -1 : cur)),
@@ -447,7 +448,7 @@ export default function Library() {
   const onPressStart = (e) => {
     pressed.current = false;
     cancelPress();
-    const opt = e.button === 0 ? e.target.closest('[role="option"]') : null;
+    const opt = e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey ? e.target.closest('[role="option"]') : null;
     if (!opt || e.target.closest('button,input')) return;
     const idx = Number(String(opt.id).replace('lib-e-', ''));
     if (!Number.isFinite(idx)) return;
@@ -471,47 +472,66 @@ export default function Library() {
   useEffect(() => cancelPress, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── rubber band ──────────────────────────────────────────────────────────────
-  const [band, setBand] = useState(null);
+  // Drag a box over the files. Hold Ctrl (or be in select mode) and it also starts on a file itself,
+  // so you can slide across many files in one go. The box is drawn by hand and the work is done once
+  // per frame, so a big folder stays smooth.
+  const bandEl = useRef(null);
   const bandRef = useRef(null);
   const onBackgroundDown = (e) => {
-    if (e.button !== 0 || e.target.closest('[role="option"],button,input,a')) return;
+    if (e.button !== 0 || e.target.closest('button,input,a')) return;
+    const additive = e.ctrlKey || e.metaKey || S.current.selectMode;
+    const onFile = !!e.target.closest('[role="option"]');
+    if (onFile && !additive) return; // a plain press on a file is a click, or the start of moving it
     const el = scroller.current;
     const box = el.getBoundingClientRect();
     if (e.clientX > box.left + el.clientWidth) return; // the scrollbar
+    if (onFile) e.preventDefault(); // no native file drag and no text selection while sliding
+    cancelPress();
     const base = e.ctrlKey || e.metaKey || e.shiftKey || S.current.selectMode ? new Set(S.current.sel) : new Set();
-    const start = { x: e.clientX - box.left - PAD, y: e.clientY - box.top + el.scrollTop - PAD };
-    bandRef.current = { start, base, moved: false, lastX: e.clientX, lastY: e.clientY };
+    const toCanvas = (cx, cy) => ({ x: cx - box.left - PAD, y: cy - box.top + el.scrollTop - PAD });
+    const start = toCanvas(e.clientX, e.clientY);
+    const b = { start, base, moved: false, x: e.clientX, y: e.clientY, raf: 0, sig: '' };
+    bandRef.current = b;
     getAllPaths().catch(() => {});
     el.focus({ preventScroll: true });
-    const update = () => {
-      const b = bandRef.current;
-      if (!b) return;
-      const cur = { x: b.lastX - box.left - PAD, y: b.lastY - box.top + el.scrollTop - PAD };
+
+    const frame = () => {
+      if (bandRef.current !== b) return;
+      b.raf = requestAnimationFrame(frame);
+      // keep scrolling while the pointer rests near the top or bottom edge, faster the closer it is
+      const edge = 40;
+      if (b.y < box.top + edge) el.scrollTop -= Math.ceil((box.top + edge - b.y) / 3);
+      else if (b.y > box.bottom - edge) el.scrollTop += Math.ceil((b.y - (box.bottom - edge)) / 3);
+      const cur = toCanvas(b.x, b.y);
       if (!b.moved && Math.hypot(cur.x - start.x, cur.y - start.y) < 5) return;
-      if (!b.moved) setSelectMode(true); // dragging a box over files is select mode too
-      b.moved = true;
-      setBand({ x1: start.x, y1: start.y, x2: cur.x, y2: cur.y });
-      const idxs = entriesInRect(S.current.layout.rows, S.current.geo, { x1: start.x, y1: start.y, x2: cur.x, y2: cur.y });
+      if (!b.moved) { b.moved = true; setSelectMode(true); } // dragging a box over files is select mode too
+      const rect = { x1: start.x, y1: start.y, x2: cur.x, y2: cur.y };
+      const d = bandEl.current;
+      if (d) {
+        d.style.display = 'block';
+        d.style.left = `${Math.min(rect.x1, rect.x2)}px`;
+        d.style.top = `${Math.min(rect.y1, rect.y2)}px`;
+        d.style.width = `${Math.abs(rect.x2 - rect.x1)}px`;
+        d.style.height = `${Math.abs(rect.y2 - rect.y1)}px`;
+      }
+      const idxs = entriesInRect(S.current.layout.rows, S.current.geo, rect);
+      const sig = `${idxs.length}:${idxs[0]}:${idxs[idxs.length - 1]}`;
+      if (sig === b.sig) return; // the same files as a moment ago: nothing to redraw
+      b.sig = sig;
       const next = new Set(base);
       for (const i of idxs) { const p = pathAt(i); if (p) next.add(p); }
       setSel(next);
     };
-    const move = (ev) => {
-      const b = bandRef.current;
-      if (!b) return;
-      b.lastX = ev.clientX; b.lastY = ev.clientY;
-      // scroll when the pointer is near the top or bottom edge
-      if (ev.clientY < box.top + 24) el.scrollTop -= 18;
-      else if (ev.clientY > box.bottom - 24) el.scrollTop += 18;
-      update();
-    };
+    b.raf = requestAnimationFrame(frame);
+
+    const move = (ev) => { b.x = ev.clientX; b.y = ev.clientY; };
     const up = () => {
-      const b = bandRef.current;
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
+      cancelAnimationFrame(b.raf);
       bandRef.current = null;
-      setBand(null);
-      if (b && !b.moved && !e.ctrlKey && !e.metaKey && !e.shiftKey && !S.current.selectMode) clearSel();
+      if (bandEl.current) bandEl.current.style.display = 'none';
+      if (!b.moved && !e.ctrlKey && !e.metaKey && !e.shiftKey && !S.current.selectMode) clearSel();
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
@@ -618,7 +638,7 @@ export default function Library() {
 
   const crumbs = folder ? folder.split('/') : [];
   const crumbDrop = (rel) => ({
-    onDragOver: (e) => { if (isLibraryDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; } },
+    onDragOver: (e) => { if (isLibraryDrag(e)) { e.preventDefault(); e.dataTransfer.dropEffect = (e.ctrlKey || e.altKey) ? 'copy' : 'move'; } },
     onDrop: (e) => { if (isLibraryDrag(e)) { e.preventDefault(); dropInto(rel, e); } },
   });
 
@@ -779,13 +799,11 @@ export default function Library() {
                       </div>
                     );
                   })}
-                  {band && (
-                    <div
-                      className="absolute border border-primary bg-primary/15 rounded-sm pointer-events-none z-10"
-                      style={{ left: Math.min(band.x1, band.x2), top: Math.min(band.y1, band.y2), width: Math.abs(band.x2 - band.x1), height: Math.abs(band.y2 - band.y1) }}
-                      data-testid="library-band"
-                    />
-                  )}
+                  <div
+                    ref={bandEl} style={{ display: 'none' }} aria-hidden="true"
+                    className="absolute border border-primary bg-primary/15 rounded-sm pointer-events-none z-10"
+                    data-testid="library-band"
+                  />
                 </div>
                 {data.loading && !meta && <p className="py-16 text-center text-sm text-muted-foreground">{t('common.loading')}</p>}
                 {data.error && <p className="py-16 text-center text-sm text-muted-foreground">{t('library.loadFailed')}</p>}

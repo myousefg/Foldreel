@@ -260,10 +260,11 @@ export function JobsProvider({ children }) {
     }
   }, [dropLocal]);
 
-  const clearFinished = useCallback(async () => {
-    try { await jobsApi.clearFinished(); }
+  // `status` (done, error or canceled) clears only those; without it every finished job goes.
+  const clearFinished = useCallback(async (status) => {
+    try { await jobsApi.clearFinished(status); }
     catch { toast.error('Could not clear'); return; }
-    setJobs(prev => Object.fromEntries(Object.entries(prev).filter(([, j]) => ACTIVE.has(j.status))));
+    setJobs(prev => Object.fromEntries(Object.entries(prev).filter(([, j]) => ACTIVE.has(j.status) || (status && j.status !== status))));
   }, []);
 
   const clearOauth = useCallback((site) => {

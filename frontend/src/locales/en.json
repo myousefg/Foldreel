@@ -89,7 +89,8 @@
     "emptyTip": "Paste a link above to start. Drop a .txt file of links onto the box to add many at once.",
     "worksWith": "Works with",
     "worksWithMore": "and many more",
-    "viewLibrary": "View library"
+    "viewLibrary": "View library",
+    "siteBlocked": "TikTok is blocking this request (HTTP 403). Logging in does not fix it. Waiting and trying again, or another network, often works."
   },
   "preview": {
     "title": "Preview",
@@ -113,8 +114,8 @@
     "search": "Search URLs…",
     "allStatus": "All status",
     "clear": "Clear finished",
-    "clearConfirm": "Remove all finished jobs?",
-    "clearConfirmDesc": "Running and queued jobs are kept. Log files are deleted.",
+    "clearConfirm": "Remove all {{count}} finished jobs?",
+    "clearConfirmDesc": "Running and queued jobs are kept. Log files are deleted. Your downloaded files stay.",
     "empty": "No downloads yet",
     "emptyDesc": "Finished downloads show up here.",
     "noResults": "No results for \"{{query}}\"",
@@ -139,7 +140,13 @@
     "copyUrl": "Copy link",
     "copied": "Link copied",
     "needsAttention": "Needs attention",
-    "filesMissing": "{{count}} no longer in the folder"
+    "filesMissing": "{{count}} no longer in the folder",
+    "clearDone": "Clear done",
+    "clearError": "Clear errors",
+    "clearCanceled": "Clear canceled",
+    "clearDoneConfirm": "Remove all {{count}} done jobs?",
+    "clearErrorConfirm": "Remove all {{count}} jobs with errors?",
+    "clearCanceledConfirm": "Remove all {{count}} canceled jobs?"
   },
   "library": {
     "summary": "{{count}} items · {{size}}",
@@ -424,7 +431,10 @@
     "linkCopied": "Link copied",
     "copyPath": "Click to copy the path",
     "pathCopied": "Path copied",
-    "savedTo": "Saved to"
+    "savedTo": "Saved to",
+    "saveTo": "Save to",
+    "defaultFolder": "Default folder",
+    "chooseFolder": "Choose folder..."
   },
   "settings": {
     "title": "Settings",
@@ -484,7 +494,7 @@
     "cookiesBrowserPick": "Browser",
     "browserRunning": "{{name}} is running. Chromium browsers lock their cookie database while open; quit {{name}} for Foldreel to read it.",
     "cookiesFileHelpLink": "Get \"Get cookies.txt LOCALLY\"",
-    "appearance": "APPEARANCE",
+    "appearance": "General",
     "theme": "Theme",
     "light": "Light",
     "dark": "Dark",
@@ -540,7 +550,7 @@
     "toolRepo": "Open {{name}} on GitHub",
     "tool_downloading": "Downloading",
     "tool_installing": "Installing",
-    "files": "FILES",
+    "files": "Files",
     "viewConfig": "View generated gallery-dl.json",
     "hideConfig": "Hide config",
     "editConfig": "Edit custom config",
@@ -565,11 +575,11 @@
     "presetNameRequired": "Name is required",
     "dataFolder": "Data folder",
     "dataFolderDesc": "Database, config, logs, download archive, gallery-dl cache, and downloaded tools. Set the FOLDREEL_DATA env var to move it.",
-    "downloadsFolder": "Downloads folder",
+    "downloadsFolder": "Download folder",
     "keepOriginal": "Keep original",
-    "defaultPhotoFormat": "Default photo format",
+    "defaultPhotoFormat": "Photos",
     "defaultPhotoFormatDesc": "Converts HEIC, WEBP, and other photo formats to your choice as they download - handy for iPhone exports.",
-    "defaultVideoFormat": "Default video format",
+    "defaultVideoFormat": "Videos",
     "defaultVideoFormatDesc": "Converts MOV and other video formats to your choice as they download.",
     "clearCache": "Clear cache",
     "clearCacheDesc": "Removes generated thumbnails and gallery-dl's internal cache. Nothing you downloaded is touched.",
@@ -604,7 +614,7 @@
     "noticesTagline": "Each component keeps its own license.",
     "noticesFootnote": "gallery-dl and aria2c are licensed under GPL-2.0, FFmpeg under LGPL-2.1/GPL, and yt-dlp under the Unlicense - each bundled as a separate, unmodified executable that Foldreel invokes as a subprocess. Foldreel's own source is MIT.",
     "updateStore": "Updated by the Microsoft Store",
-    "deleteMode": "When deleting files",
+    "deleteMode": "Delete files",
     "deleteModeDesc": "What the Delete key does in the Library. Deleting permanently always asks first, like Windows.",
     "deleteRecycle": "Move to the Recycle Bin",
     "deletePermanent": "Delete permanently"
@@ -657,31 +667,31 @@
     "done": "Done",
     "welcome": {
       "title": "Welcome to Foldreel",
-      "body": "Foldreel downloads, converts, renames, and watches your media - all in one app. Quick tour of the basics."
+      "body": "Download, browse, edit, convert and organize your media in one app. Here is a quick tour."
     },
     "dashboard": {
-      "title": "Dashboard",
-      "body": "Paste one URL or many, one per line. Pick a mode (Auto fits ~350 sites), then Download. The download folder and file naming sit right below the queue."
+      "title": "Downloads",
+      "body": "Paste one link or many, one per line. Links to a file or a video stream work too. The folder and file names are the chips under the box."
     },
     "watch": {
       "title": "Watch",
-      "body": "Turn any single URL into a recurring check instead of a one-off download - Foldreel re-checks it on an interval you pick and only pulls whatever's new since last time."
+      "body": "Turn a link into a recurring check that saves only what is new, into the folder you pick for it."
     },
     "convert": {
       "title": "Convert",
-      "body": "Drop any photo or video here, not just something Foldreel downloaded - HEIC and MOV from an iPhone convert straight to JPG and MP4, with a quality control if you also want to shrink the file."
+      "body": "Drop any photo or video to change its format or size. HEIC and MOV become JPG and MP4."
     },
     "organize": {
       "title": "Organize",
-      "body": "Pick specific files or folders, drag them into the order you want, and rename them all at once with a shared name and sequence - any folder, not just Foldreel downloads."
+      "body": "Pick files or folders, drag them into order, and rename them all at once."
     },
     "settings": {
       "title": "Settings",
-      "body": "gallery-dl, yt-dlp, FFmpeg, and aria2c all come bundled - nothing to install. This page holds the download folder, proxy, parallel-download count, theme, language, app updates, and where Foldreel's data folder lives."
+      "body": "The download folder and file names, theme, language and updates."
     },
     "advanced": {
       "title": "Advanced",
-      "body": "Naming templates for downloaded files, the browser extension's pairing code, and config presets for gallery-dl power users - tucked away here so the main pages stay simple."
+      "body": "Download speed and limits, the browser extension link, and presets."
     },
     "sites": {
       "title": "Sites: private accounts",
@@ -689,7 +699,15 @@
     },
     "history": {
       "title": "History",
-      "body": "Every download is listed here. Expand a row for thumbnails, the log, re-download, open folder, or delete the files from disk. Removing an entry never touches your files unless you choose Delete files."
+      "body": "Every finished download is listed here. Open a row for its pictures, log, re-download or delete."
+    },
+    "library": {
+      "title": "Library",
+      "body": "Your download folder as a file manager: folders, five views, search, drag and drop, favorites, tags and a duplicates finder. Videos play right here. Press and hold, or drag a box, to select many."
+    },
+    "edit": {
+      "title": "Edit",
+      "body": "Trim on a timeline, crop, turn, add text and looks, change speed and sound, then save a copy."
     }
   },
   "common": {
@@ -816,7 +834,6 @@
   },
   "edit": {
     "empty": "Drop a photo, video or sound here",
-    "emptyDesc": "Trim, crop, turn and adjust it, then save a copy. The original is never changed.",
     "choose": "Choose a file",
     "change": "Open another",
     "notMedia": "That is not a photo, video or sound file.",
@@ -839,15 +856,16 @@
       "rotate": "Rotate",
       "adjust": "Adjust",
       "speed": "Speed",
-      "audio": "Sound"
+      "audio": "Sound",
+      "looks": "Looks",
+      "text": "Text"
     },
     "crop": {
       "shape": "Shape",
       "free": "Free",
       "original": "Original",
       "reset": "Reset crop",
-      "size": "Result: {{w}} × {{h}} pixels",
-      "hint": "Drag the frame to move it, or the handles to resize."
+      "size": "Result: {{w}} × {{h}} pixels"
     },
     "rotate": {
       "left": "Turn left",
@@ -859,18 +877,18 @@
     "adjust": {
       "brightness": "Brightness",
       "contrast": "Contrast",
-      "saturation": "Colour"
+      "saturation": "Colour",
+      "fadeIn": "Fade in from black",
+      "fadeOut": "Fade out to black"
     },
-    "speed": {
-      "hint": "The sound is sped up or slowed down to match."
-    },
+    "speed": {},
     "audio": {
       "mute": "Remove the sound",
       "volume": "Volume",
       "fadeIn": "Fade in",
       "fadeOut": "Fade out",
       "none": "This video has no sound.",
-      "previewNote": "The preview plays at up to 100%. The saved file uses the full level."
+      "previewNote": "Preview plays up to 100%."
     },
     "export": {
       "save": "Save a copy",
@@ -878,7 +896,8 @@
       "quality": "Quality",
       "done": "Saved {{name}}",
       "failed": "Could not save: {{error}}",
-      "editCopy": "Edit the copy"
+      "editCopy": "Edit the copy",
+      "size": "Size"
     },
     "format": {
       "auto": "Same kind",
@@ -894,6 +913,60 @@
       "high": "High quality",
       "balanced": "Balanced",
       "small": "Smaller file"
-    }
+    },
+    "look": {
+      "none": "Original",
+      "vivid": "Vivid",
+      "warm": "Warm",
+      "cool": "Cool",
+      "faded": "Faded",
+      "sepia": "Sepia",
+      "bw": "Black and white",
+      "noir": "Noir"
+    },
+    "text": {
+      "sample": "Your text",
+      "add": "Add text",
+      "empty": "Text",
+      "content": "Text",
+      "size": "Size",
+      "color": "Colour",
+      "box": "Background box",
+      "remove": "Remove text"
+    },
+    "size": {
+      "orig": "Original size"
+    },
+    "keys": {
+      "play": "Play or pause",
+      "step": "Step 0.1 s",
+      "step1s": "Step 1 s",
+      "frame": "One frame",
+      "inout": "Set start or end",
+      "jump": "Jump to start or end",
+      "loop": "Loop",
+      "undo": "Undo"
+    },
+    "toStart": "Go to the start",
+    "toEnd": "Go to the end",
+    "prevFrame": "Previous frame",
+    "nextFrame": "Next frame",
+    "loop": "Loop",
+    "zoom": "Zoom the timeline",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "shortcuts": "Shortcuts",
+    "saveFrame": "Save frame"
+  },
+  "files": {
+    "whereTitle": "Saving",
+    "change": "Change",
+    "changed": "Downloads now go to {{name}}",
+    "layout": "Folder layout",
+    "names": "File names",
+    "convertTitle": "Convert while downloading",
+    "deleteTitle": "Deleting",
+    "storageTitle": "Storage",
+    "technical": "Technical"
   }
 }

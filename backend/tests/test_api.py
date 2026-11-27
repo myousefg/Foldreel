@@ -832,7 +832,7 @@ def test_edit_command_builder_without_ffmpeg():
     srv = importlib.import_module("server")
     info = {"kind": "video", "duration": 10.0, "has_audio": True}
     ops = srv.EditOps(trim_start=2, trim_end=6, speed=4.0, fade_in=1, rotate=180)
-    cmd, out_len = srv._edit_command("ffmpeg", Path("a.mp4"), info, ops, Path("b.mp4"), "mp4")
+    cmd, out_len, _temps = srv._edit_command("ffmpeg", Path("a.mp4"), info, ops, Path("b.mp4"), "mp4")
     joined = " ".join(cmd)
     assert out_len == 1.0 and "-ss 2.000 -t 4.000" in joined
     assert "hflip,vflip" in joined and "setpts=PTS/4.0000" in joined
@@ -845,3 +845,113 @@ def test_library_listing_says_whether_the_folder_exists(live):
     assert top["folder_exists"] is True
     _, gone = live.request("GET", "/api/library?folder=nothing%2Fhere")
     assert gone["folder_exists"] is False and gone["total"] == 0
+
+
+@needs_ffmpeg
+def test_edit_export_looks_text_fades_size_and_a_saved_frame(live, tmp_path):
+    clip = tmp_path / "show.mp4"
+    _make_clip(clip, seconds=4, size="640x360")
+    base_ops = {"trim_start": 0.5, "trim_end": 3.5}
+    # a look, text with a box, picture fades and a size cap together
+    ops = dict(base_ops, tone="sepia", brightness=0.1, v_fade_in=0.5, v_fade_out=0.5, height=180,
+               texts=[{"text": "Hello: 100% 'test'", "x": 0.5, "y": 0.8, "size": 0.1, "color": "#ffd60a", "box": True}])
+    _, job = live.request("POST", "/api/edit/export", {"path": str(clip), "ops": ops})
+    done = _wait_export(live, job["id"])
+    assert done["status"] == "done", done
+    _, out = live.request("GET", f"/api/edit/info?path={_q(done['out_path'])}")
+    assert (out["width"], out["height"]) == (320, 180) and 2.5 < out["duration"] < 3.5
+    # the text really is drawn: the same export without it is a different file
+    _, plain_job = live.request("POST", "/api/edit/export", {"path": str(clip), "ops": dict(ops, texts=[])})
+    plain = _wait_export(live, plain_job["id"])
+    assert plain["status"] == "done"
+    assert Path(done["out_path"]).read_bytes() != Path(plain["out_path"]).read_bytes()
+    # the text files used for drawing are cleaned up
+    assert not list((live.data / "logs" / "jobs").glob("edit_*.txt"))
+    # save one frame of the video as a picture
+    _, fjob = live.request("POST", "/api/edit/export", {"path": str(clip), "ops": {"frame_at": 2.0, "format": "png", "rotate": 90, "tone": "bw"}})
+    frame = _wait_export(live, fjob["id"])
+    assert frame["status"] == "done" and frame["out_name"].endswith(".png"), frame
+    _, fo = live.request("GET", f"/api/edit/info?path={_q(frame['out_path'])}")
+    assert fo["kind"] == "image" and (fo["width"], fo["height"]) == (360, 640)
+    # animated GIF with a size cap
+    _, gjob = live.request("POST", "/api/edit/export", {"path": str(clip), "ops": {"format": "gif", "trim_end": 1.5, "height": 120}})
+    gif = _wait_export(live, gjob["id"])
+    assert gif["status"] == "done" and gif["out_name"].endswith(".gif"), gif
+    _, go = live.request("GET", f"/api/edit/info?path={_q(gif['out_path'])}")
+    assert go["height"] == 120
+
+
+def test_edit_new_commands_without_ffmpeg():
+    sys.path.insert(0, str(BACKEND_DIR))
+    import importlib
+    os.environ.setdefault("FOLDREEL_DATA", str(Path(os.environ.get("TEMP", "/tmp")) / "foldreel-edit-unit"))
+    srv = importlib.import_module("server")
+    info = {"kind": "video", "duration": 10.0, "has_audio": True, "width": 1000, "height": 500}
+    ops = srv.EditOps(tone="warm", v_fade_out=1, height=360, rotate=90)
+    cmd, out_len, temps = srv._edit_command("ffmpeg", Path("a.mp4"), info, ops, Path("b.mp4"), "mp4")
+    joined = " ".join(cmd)
+    assert "colorchannelmixer=rr=1.1000" in joined and "fade=t=out:st=9.000:d=1.000" in joined and "min(360,ih)" in joined
+    assert out_len == 10.0 and temps == []
+    # a frame needs no trim, speed or fades, and is written as a still
+    still = srv.EditOps(frame_at=3, format="jpg", speed=2, v_fade_in=1)
+    assert srv._edit_out_format("video", still, Path("a.mp4")) == "jpg"
+    cmd, out_len, _ = srv._edit_command("ffmpeg", Path("a.mp4"), info, still, Path("b.jpg"), "jpg")
+    j = " ".join(cmd)
+    assert "-ss 3.000" in j and "-frames:v 1" in j and "setpts" not in j and "fade=" not in j and out_len == 0
+    assert srv._edit_out_format("video", srv.EditOps(frame_at=1), Path("a.mp4")) == "png"
+    # the TikTok 403 is a block, not a login problem
+    assert srv._BLOCKED_BY_SITE.search("[tiktok:user] Unable to download user webpage: HTTP Error 403: Forbidden")
+    assert srv._BLOCKED_BY_SITE.search("Unable to extract secondary user ID")
+    assert not srv._BLOCKED_BY_SITE.search("login required")
+
+
+def _watch(live, **opts):
+    _, w = live.request("POST", "/api/watches", {"url": f"https://example.org/u/{uuid_hex()}", "interval_min": 60, "options": opts or None})
+    return w
+
+
+def uuid_hex():
+    import uuid
+    return uuid.uuid4().hex[:8]
+
+
+def test_watch_destination_folder(live, tmp_path):
+    dest = str(tmp_path / "watched here")
+    status, w = live.request("POST", "/api/watches", {"url": "https://example.org/u/dest1", "interval_min": 60, "options": {"dest_dir": dest}})
+    assert status == 200 and w["options"]["dest_dir"] == dest
+    # change it, then go back to the normal folder
+    status, w2 = live.request("PATCH", f"/api/watches/{w['id']}", {"dest_dir": str(tmp_path / "other")})
+    assert status == 200 and w2["options"]["dest_dir"] == str(tmp_path / "other")
+    status, w3 = live.request("PATCH", f"/api/watches/{w['id']}", {"dest_dir": ""})
+    assert status == 200 and "dest_dir" not in w3["options"]
+    # relative paths are refused
+    assert live.request("PATCH", f"/api/watches/{w['id']}", {"dest_dir": "relative/folder"})[0] == 400
+    assert live.request("POST", "/api/watches", {"url": "https://example.org/u/dest2", "options": {"dest_dir": "rel"}})[0] == 400
+    # interval changes do not touch the folder
+    live.request("PATCH", f"/api/watches/{w['id']}", {"dest_dir": dest})
+    _, w4 = live.request("PATCH", f"/api/watches/{w['id']}", {"interval_min": 120})
+    assert w4["options"]["dest_dir"] == dest and w4["interval_min"] == 120
+    live.request("DELETE", f"/api/watches/{w['id']}")
+
+
+def _add_finished_job(live, status, url):
+    con = sqlite3.connect(str(live.data / "foldreel.db"), timeout=20)
+    con.execute("INSERT INTO jobs (id, url, status, created_at, finished_at) VALUES (?,?,?,datetime('now'),datetime('now'))",
+                (os.urandom(8).hex(), url, status))
+    con.commit()
+    con.close()
+
+
+def test_clear_finished_only_clears_the_chosen_status(live):
+    live.request("DELETE", "/api/jobs")
+    for st in ("done", "done", "error", "canceled"):
+        _add_finished_job(live, st, f"https://example.org/{st}")
+    count = lambda: {s: len([j for j in live.request("GET", "/api/jobs")[1] if j["status"] == s]) for s in ("done", "error", "canceled")}
+    assert count() == {"done": 2, "error": 1, "canceled": 1}
+    assert live.request("DELETE", "/api/jobs?status=error")[0] == 200
+    assert count() == {"done": 2, "error": 0, "canceled": 1}
+    assert live.request("DELETE", "/api/jobs?status=bogus")[0] == 400
+    assert live.request("DELETE", "/api/jobs?status=done")[0] == 200
+    assert count() == {"done": 0, "error": 0, "canceled": 1}
+    assert live.request("DELETE", "/api/jobs")[0] == 200
+    assert count() == {"done": 0, "error": 0, "canceled": 0}

@@ -13,14 +13,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
     frames and the sound wave shown on the strip, a playhead you can scrub, and Space to play.
   - Crop with a draggable frame and shapes (Free, Original, 1:1, 4:5, 9:16, 16:9, 4:3, 3:2), turn left or right,
     and flip sideways or upside down.
-  - Brightness, contrast and colour, speed from 0.25x to 4x, volume up to 200%, remove the sound, and fade in
-    and out.
+  - **Looks** (Vivid, Warm, Cool, Faded, Sepia, Black and white, Noir) shown on your own picture, plus
+    brightness, contrast and colour, speed from 0.25x to 4x, volume up to 200%, remove the sound, and fade the
+    sound or the picture in and out.
+  - **Text** on the picture: up to six lines with a size, colour and optional box, dragged into place.
+  - **Save frame** writes the picture at the playhead of a video as a PNG.
+  - Zoom the timeline, step one frame at a time, jump to the start or end, and loop the part you keep.
   - Save as MP4, WebM, GIF, MP3 (sound only), or JPG, PNG and WebP for photos, at High, Balanced or Smaller
-    quality, with progress and Cancel. Undo and redo, and Reset all.
+    quality and at 2160p down to 480p, with progress and Cancel. Undo and redo, and Reset all.
   - Open a file from the Library with right-click, Edit.
 - **Direct links on Downloads.** A pasted link to a file (a picture, video or sound) says "Direct file link
   detected", and a video stream link (`.m3u8`, `.mpd`) is downloaded with the video engine, joined into one video.
-- **Watch** shows the creator's own picture when the site gives one, a click on the link text copies it, and the
+- **Watch** can save each watch to its own folder (a Save to menu on the add bar and on every row), shows the creator's own picture when the site gives one, a click on the link text copies it, and the
   list of files shows where they were saved, with each file's name (click to copy its path).
 - **Extension linking.** Foldreel notices an installed extension by itself (it shows its version and when it last
   checked in), and Link the extension connects it in one click. Typing a pairing code is still there. The
@@ -28,7 +32,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - **Engine** (Advanced) is rebuilt: Downloads at once, Speed limit, Wait between requests and Retries are menus
   of the usual choices instead of typed codes, "Files per download" has Newest 10 to 200 or a custom range, and
   there is Reset to defaults.
-- In the Library, a video now plays inside Foldreel when you double-click it.
+- In the Library, a video now plays inside Foldreel when you double-click it. Hold Ctrl and drag to slide across
+  many files and select them, even starting on a file.
+- **Settings** is rebuilt like Advanced: Files has the download folder with a Change button, folder layout and
+  file names, then conversion, deleting and storage, with the technical configuration tucked away. Theme is three
+  buttons.
+- **History**: the Clear button follows the filter. Under Done it clears only the done jobs, under Error only the
+  failed ones, and its question says how many.
+- Instagram is drawn in black and white instead of pink.
+- The tour has steps for the Library and Edit, and its text is up to date.
 - The Library has a **select mode**: press and hold a file, or drag a box over files, and every click then picks
   or drops a file. Cancel, or doing something with the selection (move, copy, delete, favorite, tags), ends it.
   A single click, Ctrl and Shift still work as before, and a double click still opens a file.
@@ -41,7 +53,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   - Select with a click, Ctrl or Shift, Ctrl+A, arrow keys, or by dragging a box over the pictures.
   - Right-click for Open, Cut, Copy, Paste, Rename, Move to, Favorite, Tags, Convert, Organize, Copy path,
     Properties and Delete. F2 renames in place, and Ctrl+Z undoes a move or rename.
-  - Drag pictures onto a folder to move them (hold Ctrl to copy), or onto Favorites or a tag.
+  - Drag pictures onto a folder to move them (hold Alt to copy), or onto Favorites or a tag.
   - New folder, favorites, tags, and a details panel with a preview, size and dimensions.
   - **Duplicates** finds identical files, and "Keep one of each" selects the extra copies.
   - It refreshes by itself when a download finishes or you change files in Explorer, and stays fast with
@@ -71,6 +83,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   choosing "files or folders" only ever listed folders). While you drag a row, the others shrink to one line so
   the whole list fits on screen; they return to the chosen size on drop.
 - Downloads no longer shows a Recently finished section; History is the place for that.
+- Less explaining text: obvious descriptions were removed from Edit, Settings and the Engine page.
 - The old **Library** page is now **History**.
 - Creator and series are remembered when a download finishes, even though the metadata files are deleted
   afterwards, so the Library can group by them.
@@ -80,7 +93,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
   when a download finished, so each day appears once.
 - Convert and Organize: dragging files over the window no longer stutters (the blurred cover was slow), and
   dragging rows in Organize no longer jumps or overlaps when the page is scrolled.
-- Library: the highlight on a selected file in the first row or column was clipped at the edge.
+- Library: the highlight on a selected file in the first row or column was clipped at the edge, and dragging a
+  box over files was jerky in big folders. It now does its work once per frame and keeps scrolling while you
+  hold the pointer near an edge.
+- TikTok pages that fail with HTTP 403 (TikTok's bot protection, not a login problem) now say so, instead of
+  telling you to set up cookies.
 - Pasted stream links named `index` no longer overwrite or get skipped as "already downloaded"; each link
   keeps its own file, and running a link again replaces it.
 - The History panel shows pictures again when a download's recorded file name differs from the one on disk,

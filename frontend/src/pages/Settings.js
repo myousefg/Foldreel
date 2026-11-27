@@ -1,17 +1,12 @@
-import { useEffect, useId, useState } from 'react';
-import { toast } from 'sonner';
-import { AnimatePresence, motion } from 'motion/react';
+import { useEffect, useState } from 'react';
 import {
-  Loader2, FolderOpen, CheckCircle2, Download, Check, RefreshCw, Trash2, ChevronDown,
-  Github,
+  Loader2, CheckCircle2, Download, Check, RefreshCw, Github,
 } from 'lucide-react';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import { Section, Row } from '@/components/settingsUi';
+import { Segmented } from '@/components/kit';
+import FilesPanel from '@/components/settings/FilesPanel';
 import LanguageCombobox from '@/components/LanguageCombobox';
 import ImportSection from '@/components/ImportSection';
 import ComponentsRow from '@/components/ComponentsRow';
@@ -21,61 +16,13 @@ import SubNav from '@/components/SubNav';
 import { useI18n } from '@/context/I18nProvider';
 import { useTheme } from '@/context/ThemeProvider';
 import { useSettings } from '@/context/SettingsProvider';
-import { envApi, configOverridesApi } from '@/lib/api';
 import { isElectron, openExternal } from '@/lib/electron';
-import { snappy } from '@/lib/motion';
 
 export default function Settings() {
   const { t, lang, setLang } = useI18n();
   const { theme, setTheme } = useTheme();
-  const { settings: s, env, saveState, update } = useSettings();
+  const { settings: s, env, saveState, update, reloadEnv } = useSettings();
   const [tab, setTab] = useState('general');
-  const [showCfg, setShowCfg] = useState(false);
-  const [cfg, setCfg] = useState(null);
-  const cfgPanelId = useId();
-  const overridesPanelId = useId();
-
-  const [showOverrides, setShowOverrides] = useState(false);
-  const [overridesText, setOverridesText] = useState(null); // null = not loaded yet
-  const [overridesSaved, setOverridesSaved] = useState(null);
-  const [overridesError, setOverridesError] = useState('');
-  const [overridesSaving, setOverridesSaving] = useState(false);
-  const overridesDirty = overridesText !== null && overridesText !== overridesSaved;
-  const openOverrides = () => {
-    setShowOverrides(v => !v);
-    if (overridesText === null) {
-      configOverridesApi.get().then(({ overrides }) => {
-        let pretty = overrides;
-        try { pretty = JSON.stringify(JSON.parse(overrides), null, 2); } catch { /* show raw as-is */ }
-        setOverridesText(pretty);
-        setOverridesSaved(pretty);
-      }).catch(() => { setOverridesText('{}'); setOverridesSaved('{}'); });
-    }
-  };
-  const saveOverrides = async () => {
-    setOverridesSaving(true);
-    setOverridesError('');
-    try {
-      await configOverridesApi.update(overridesText);
-      setOverridesSaved(overridesText);
-      toast.success(t('settings.saved'));
-      if (cfg) envApi.config().then(setCfg).catch(() => {});
-    } catch (e) {
-      setOverridesError(e?.response?.data?.detail || t('settings.configEditorInvalid'));
-    } finally {
-      setOverridesSaving(false);
-    }
-  };
-  const resetOverrides = () => { setOverridesText(overridesSaved); setOverridesError(''); };
-
-  const [cacheClearing, setCacheClearing] = useState(false);
-  const clearCache = async () => {
-    setCacheClearing(true);
-    try { await envApi.clearCache(); toast.success(t('settings.cacheCleared')); }
-    catch { toast.error(t('settings.clearCacheFailed')); }
-    finally { setCacheClearing(false); }
-  };
-
   const [appUpdate, setAppUpdate] = useState({ status: 'idle' });
   useEffect(() => {
     if (!isElectron || !window.electronAPI.onAppUpdateStatus) return;
@@ -112,162 +59,29 @@ export default function Settings() {
     >
       <PageActions><div className="text-xs" aria-live="polite">{saveTag}</div></PageActions>
 
-      {tab === 'downloads' && env && (
-        <Section label={t('settings.files')}>
-          <Row title={t('settings.dataFolder')} desc={t('settings.dataFolderDesc')}>
-            <code className="font-mono text-[11px] text-muted-foreground break-all max-w-[280px] block">{env.data_dir}</code>
-            {isElectron && (
-              <Button variant="outline" size="icon" onClick={() => window.electronAPI.openPath(env.data_dir)} title={t('settings.openFolder')} aria-label={t('settings.openFolder')}>
-                <FolderOpen className="w-4 h-4" aria-hidden="true" />
-              </Button>
-            )}
-          </Row>
-          <Row title={t('settings.downloadsFolder')}>
-            <code className="font-mono text-[11px] text-muted-foreground break-all max-w-[280px] block">{env.output_dir}</code>
-            {isElectron && (
-              <Button variant="outline" size="icon" onClick={() => window.electronAPI.openPath(env.output_dir)} title={t('settings.openFolder')} aria-label={t('settings.openFolder')}>
-                <FolderOpen className="w-4 h-4" aria-hidden="true" />
-              </Button>
-            )}
-          </Row>
-          {env.cookies_dir && (
-            <Row title={t('settings.cookiesFolder')} desc={t('settings.cookiesFolderInfo')}>
-              <code className="font-mono text-[11px] text-muted-foreground break-all max-w-[280px] block">{env.cookies_dir}</code>
-              {isElectron && (
-                <Button variant="outline" size="icon" onClick={() => window.electronAPI.openPath(env.cookies_dir)} title={t('settings.openFolder')} aria-label={t('settings.openFolder')}>
-                  <FolderOpen className="w-4 h-4" aria-hidden="true" />
-                </Button>
-              )}
-            </Row>
-          )}
-          <Row title={t('settings.defaultPhotoFormat')} desc={t('settings.defaultPhotoFormatDesc')}>
-            <Select value={s.default_photo_format || 'keep'} onValueChange={v => update({ default_photo_format: v })}>
-              <SelectTrigger className="w-40" data-testid="default-photo-format"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="keep">{t('settings.keepOriginal')}</SelectItem>
-                <SelectItem value="jpg">JPG</SelectItem>
-                <SelectItem value="png">PNG</SelectItem>
-                <SelectItem value="webp">WEBP</SelectItem>
-              </SelectContent>
-            </Select>
-          </Row>
-          <Row title={t('settings.defaultVideoFormat')} desc={t('settings.defaultVideoFormatDesc')}>
-            <Select value={s.default_video_format || 'keep'} onValueChange={v => update({ default_video_format: v })}>
-              <SelectTrigger className="w-40" data-testid="default-video-format"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="keep">{t('settings.keepOriginal')}</SelectItem>
-                <SelectItem value="mp4">MP4</SelectItem>
-                <SelectItem value="webm">WEBM</SelectItem>
-              </SelectContent>
-            </Select>
-          </Row>
-          <Row title={t('settings.deleteMode')} desc={t('settings.deleteModeDesc')}>
-            <Select value={s.delete_mode || 'recycle'} onValueChange={v => update({ delete_mode: v })}>
-              <SelectTrigger className="w-56" data-testid="delete-mode"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="recycle">{t('settings.deleteRecycle')}</SelectItem>
-                <SelectItem value="permanent">{t('settings.deletePermanent')}</SelectItem>
-              </SelectContent>
-            </Select>
-          </Row>
-          <Row title={t('settings.clearCache')} desc={t('settings.clearCacheDesc')}>
-            <Button variant="outline" size="sm" onClick={clearCache} disabled={cacheClearing}>
-              {cacheClearing ? <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5 me-1.5" />}
-              {t('settings.clearCache')}
-            </Button>
-          </Row>
-          <div className="p-4">
-            <button onClick={() => { setShowCfg(v => !v); if (!cfg) envApi.config().then(setCfg).catch(() => setCfg({})); }}
-              aria-expanded={showCfg} aria-controls={cfgPanelId}
-              className="text-xs underline text-muted-foreground hover:text-foreground">
-              {showCfg ? t('settings.hideConfig') : t('settings.viewConfig')}
-            </button>
-            <AnimatePresence initial={false}>
-              {showCfg && (
-                <motion.div
-                  id={cfgPanelId}
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={snappy}
-                  style={{ overflow: 'hidden' }}
-                >
-                  <pre className="mt-2 max-h-64 overflow-auto rounded border border-border bg-muted/30 p-2 text-[11px] font-mono">
-                    {cfg ? JSON.stringify(cfg, null, 2) : '…'}
-                  </pre>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-          <div className="p-4 border-t border-border">
-            <button onClick={openOverrides}
-              aria-expanded={showOverrides} aria-controls={overridesPanelId}
-              className="text-xs underline text-muted-foreground hover:text-foreground">
-              {showOverrides ? t('settings.hideConfigEditor') : t('settings.editConfig')}
-            </button>
-            <AnimatePresence initial={false}>
-              {showOverrides && (
-                <motion.div
-                  id={overridesPanelId}
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={snappy}
-                  style={{ overflow: 'hidden' }}
-                >
-                  <p id={`${overridesPanelId}-desc`} className="text-xs text-muted-foreground leading-relaxed mt-2 mb-2 max-w-xl">
-                    {t('settings.configEditorDesc')}
-                  </p>
-                  <textarea
-                    value={overridesText ?? ''}
-                    onChange={e => { setOverridesText(e.target.value); setOverridesError(''); }}
-                    spellCheck={false}
-                    placeholder={t('settings.configEditorPlaceholder')}
-                    aria-label={t('settings.editConfig')}
-                    aria-describedby={`${overridesPanelId}-desc`}
-                    className="w-full h-48 rounded border border-border bg-muted/30 p-2 text-[11px] font-mono leading-relaxed resize-y focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                  {overridesError && (
-                    <p className="text-xs text-destructive mt-1.5 font-mono whitespace-pre-wrap">{overridesError}</p>
-                  )}
-                  <div className="flex items-center gap-2 mt-2">
-                    <Button size="sm" onClick={saveOverrides} disabled={overridesSaving || !overridesDirty}>
-                      {overridesSaving && <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" />}
-                      {t('settings.configEditorSave')}
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={resetOverrides} disabled={!overridesDirty || overridesSaving}>
-                      {t('settings.configEditorReset')}
-                    </Button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </Section>
-      )}
+      {tab === 'downloads' && <FilesPanel s={s} env={env} update={update} reloadEnv={reloadEnv} />}
 
       {tab === 'import' && <ImportSection />}
 
       {tab === 'general' && (
       <Section label={t('settings.appearance')}>
         <Row title={t('settings.theme')}>
-          <Select value={theme} onValueChange={v => { setTheme(v); update({ theme: v }); }}>
-            <SelectTrigger className="w-36" data-testid="theme-select"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="light">{t('settings.light')}</SelectItem>
-              <SelectItem value="dark">{t('settings.dark')}</SelectItem>
-              <SelectItem value="system">{t('settings.system')}</SelectItem>
-            </SelectContent>
-          </Select>
+          <Segmented
+            label={t('settings.theme')} value={theme} onChange={v => { setTheme(v); update({ theme: v }); }}
+            options={[
+              { value: 'light', label: t('settings.light') },
+              { value: 'dark', label: t('settings.dark') },
+              { value: 'system', label: t('settings.system') },
+            ]}
+          />
         </Row>
         <Row title={t('settings.language')}>
           <LanguageCombobox value={lang} onValueChange={v => { setLang(v); update({ language: v }); }} t={t} />
         </Row>
-        <Row title={t('settings.startWithWindows')} desc={t('settings.startWithWindowsDesc')}>
+        <Row title={t('settings.startWithWindows')}>
           <Switch checked={!!s.autostart} onCheckedChange={setAutostart} disabled={!isElectron} />
         </Row>
-        {!isElectron && <p className="px-4 pb-3 -mt-2 text-[11px] text-muted-foreground">{t('settings.autoStartElectronOnly')}</p>}
-        <Row title={t('settings.notifications')} desc={t('settings.notificationsDesc')}>
+        <Row title={t('settings.notifications')}>
           <Switch
             checked={s.notifications_enabled ?? true}
             onCheckedChange={v => update({ notifications_enabled: v })}

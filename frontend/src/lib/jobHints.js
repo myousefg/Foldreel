@@ -55,4 +55,5 @@ export const HINT_KEY = {
   auth: 'dashboard.needsAuth',
   cookies_locked: 'dashboard.cookiesLocked',
   rate_limited: 'dashboard.rateLimited',
+  blocked: 'dashboard.siteBlocked',
 };

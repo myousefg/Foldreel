@@ -7,8 +7,9 @@ const TRIM_MIN = 0.1; // the shortest piece that can be kept, in seconds
  * The strip under the preview: a ruler, the frames of the video, the sound wave, the part that is
  * kept (with a handle at each end) and the playhead. Drag a handle to trim, drag anywhere else to scrub.
  */
-export default function Timeline({ info, ops, set, time, onSeek, filmUrl, waveUrl, t }) {
+export default function Timeline({ info, ops, set, time, onSeek, filmUrl, waveUrl, zoom = 1, t }) {
   const box = useRef(null);
+  const view = useRef(null);
   const drag = useRef(null);
   const [width, setWidth] = useState(800);
   const [filmOk, setFilmOk] = useState(true);
@@ -27,6 +28,15 @@ export default function Timeline({ info, ops, set, time, onSeek, filmUrl, waveUr
     return () => ro.disconnect();
   }, []);
   useEffect(() => { setFilmOk(true); setWaveOk(true); }, [info.path]);
+
+  // When zoomed in, keep the playhead on screen.
+  useEffect(() => {
+    const v = view.current;
+    if (!v || zoom <= 1) return;
+    const px = (time / (info.duration || 1)) * width;
+    if (px < v.scrollLeft + 24) v.scrollLeft = Math.max(0, px - 24);
+    else if (px > v.scrollLeft + v.clientWidth - 24) v.scrollLeft = px - v.clientWidth + 24;
+  }, [time, zoom, width, info.duration]);
 
   const x = (sec) => (sec / duration) * width;
   const at = (clientX) => {
@@ -81,7 +91,8 @@ export default function Timeline({ info, ops, set, time, onSeek, filmUrl, waveUr
 
   return (
     <div className="select-none" data-testid="timeline">
-      <div ref={box} className="relative" style={{ touchAction: 'none' }}
+      <div ref={view} className="overflow-x-auto overflow-y-hidden px-2 pb-1" style={{ scrollbarWidth: 'thin' }}>
+      <div ref={box} className="relative" style={{ touchAction: 'none', width: `${zoom * 100}%` }}
         onPointerDown={(e) => begin(e, 'play')} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish}>
         {/* ruler */}
         <div className="relative h-5 text-[10px] text-muted-foreground tabular-nums" aria-hidden="true">
@@ -125,6 +136,7 @@ export default function Timeline({ info, ops, set, time, onSeek, filmUrl, waveUr
           <span className="absolute -ms-[5px] top-3 w-2.5 h-2.5 rotate-45 bg-white rounded-[2px] shadow" aria-hidden="true" />
           <span className="absolute -ms-px top-4 bottom-0 w-0.5 bg-white shadow" aria-hidden="true" />
         </div>
+      </div>
       </div>
     </div>
   );

@@ -7,9 +7,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import WatchSection from '@/components/WatchSection';
+import WatchFolderMenu from '@/components/WatchFolderMenu';
 import { PageActions, PageSubtitle } from '@/components/PageHeader';
 import { useJobs } from '@/context/JobsProvider';
 import { useI18n } from '@/context/I18nProvider';
+import { useSettings } from '@/context/SettingsProvider';
 import { useWatches } from '@/lib/watches';
 
 const INTERVALS = [15, 30, 60, 180, 360, 720, 1440];
@@ -27,6 +29,8 @@ export default function Watch() {
   const { t } = useI18n();
   const { watches, add, update, remove, checkNow, checkAll } = useWatches();
   const { active } = useJobs();
+  const { settings } = useSettings();
+  const [dest, setDest] = useState('');
   const [checkingAll, setCheckingAll] = useState(false);
   const [url, setUrl] = useState('');
   const [interval, setInterval_] = useState('60');
@@ -37,7 +41,7 @@ export default function Watch() {
     if (!isValidUrl(url)) { toast.error(t('dashboard.invalidUrl')); return; }
     setBusy(true);
     try {
-      await add(url.trim(), Number(interval));
+      await add(url.trim(), Number(interval), dest ? { dest_dir: dest } : undefined);
       setUrl('');
       toast.success(t('watch.added'));
     } catch {
@@ -87,6 +91,10 @@ export default function Watch() {
             {INTERVALS.map(m => <SelectItem key={m} value={String(m)}>{t(`watch.interval.${m}`)}</SelectItem>)}
           </SelectContent>
         </Select>
+        <WatchFolderMenu
+          value={dest} onChange={setDest} defaultDir={settings?.output_dir || ''}
+          known={watches.map(w => w.options?.dest_dir).filter(Boolean)} testId="watch-dest"
+        />
         <Button onClick={submit} disabled={busy || !url.trim()} data-testid="watch-add-btn">
           {busy ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : <Bell className="w-4 h-4 me-2" />}
           {t('watch.add')}

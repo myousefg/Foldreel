@@ -1,5 +1,6 @@
 import {
-  DEFAULT_OPS, aspectCrop, clamp, cssFilter, cssTransform, fitCrop, formatTime, isEdited, outputSize, resultLength, rulerStep, toExportOps, turnedSize,
+  DEFAULT_OPS, LOOKS, TONES, activeLook, aspectCrop, clamp, cssFilter, cssTransform, fadeOpacity, fitCrop, formatTime, isEdited, outputSize,
+  resultLength, rulerStep, toExportOps, toneMatrix, turnedSize,
 } from './editOps';
 
 const video = { width: 640, height: 360, duration: 10 };
@@ -83,5 +84,46 @@ describe('time labels', () => {
   test('the ruler picks wider steps for longer clips', () => {
     expect(rulerStep(6, 1200)).toBeLessThan(rulerStep(600, 1200));
     expect(rulerStep(10, 800) * (800 / 10)).toBeGreaterThanOrEqual(80);
+  });
+});
+
+describe('looks, text, fades and size', () => {
+  test('a tone is drawn with a named SVG filter, and has a 20 number matrix', () => {
+    expect(cssFilter({ ...DEFAULT_OPS, tone: 'sepia' })).toBe('url(#edit-tone-sepia)');
+    expect(cssFilter({ ...DEFAULT_OPS, tone: 'bw', contrast: 0.4 })).toContain('url(#edit-tone-bw) brightness');
+    expect(toneMatrix('sepia').split(' ')).toHaveLength(20);
+    expect(toneMatrix('none')).toBeNull();
+    expect(Object.keys(TONES)).toEqual(['bw', 'sepia', 'warm', 'cool']);
+  });
+
+  test('the look that matches the settings is found', () => {
+    expect(activeLook(DEFAULT_OPS)).toBe('none');
+    const noir = LOOKS.find((l) => l.id === 'noir');
+    expect(activeLook({ ...DEFAULT_OPS, tone: noir.tone, brightness: noir.brightness, contrast: noir.contrast, saturation: noir.saturation })).toBe('noir');
+    expect(activeLook({ ...DEFAULT_OPS, brightness: 0.33 })).toBe('');
+  });
+
+  test('text, looks, picture fades and a size cap all count as edits and are sent', () => {
+    expect(isEdited({ ...DEFAULT_OPS, tone: 'warm' }, video)).toBe(true);
+    expect(isEdited({ ...DEFAULT_OPS, vFadeIn: 1 }, video)).toBe(true);
+    expect(isEdited({ ...DEFAULT_OPS, height: 720 }, video)).toBe(true);
+    expect(isEdited({ ...DEFAULT_OPS, texts: [{ text: '   ', x: 0.5, y: 0.5, size: 0.1, color: '#fff', box: false }] }, video)).toBe(false);
+    const sent = toExportOps({ ...DEFAULT_OPS, tone: 'cool', height: 720, vFadeOut: 0.5, texts: [{ text: 'Hi', x: 0.5, y: 0.8, size: 0.08, color: '#ffffff', box: true }, { text: ' ', x: 0, y: 0, size: 0.1, color: '#fff', box: false }] }, video);
+    expect(sent).toMatchObject({ tone: 'cool', height: 720, v_fade_out: 0.5 });
+    expect(sent.texts).toEqual([{ text: 'Hi', x: 0.5, y: 0.8, size: 0.08, color: '#ffffff', box: true }]);
+  });
+
+  test('a size cap scales the result and keeps it even', () => {
+    expect(outputSize(video, { ...DEFAULT_OPS, height: 180 })).toEqual({ w: 320, h: 180 });
+    expect(outputSize(video, { ...DEFAULT_OPS, height: 2000 })).toEqual({ w: 640, h: 360 });
+  });
+
+  test('the picture fades in at the start and out at the end of the kept part', () => {
+    const ops = { ...DEFAULT_OPS, trimStart: 2, trimEnd: 6, vFadeIn: 1, vFadeOut: 1 };
+    expect(fadeOpacity(2, ops, video)).toBe(0);
+    expect(fadeOpacity(2.5, ops, video)).toBeCloseTo(0.5, 5);
+    expect(fadeOpacity(4, ops, video)).toBe(1);
+    expect(fadeOpacity(5.5, ops, video)).toBeCloseTo(0.5, 5);
+    expect(fadeOpacity(3, DEFAULT_OPS, video)).toBe(1);
   });
 });

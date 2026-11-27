@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Foldreel",
   "version": "1.2.0",
-  "description": "Send the current tab or a link straight to Foldreel, running on this computer. Also blocks pop-ups and invisible click-catching layers.",
+  "description": "Send media, links or the current tab to Foldreel on this computer. Also blocks pop-ups and invisible click-catching layers.",
   "minimum_chrome_version": "111",
   "icons": {
     "16": "icons/icon16.png",

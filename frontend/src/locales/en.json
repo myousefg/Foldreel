@@ -90,7 +90,7 @@
     "worksWith": "Works with",
     "worksWithMore": "and many more",
     "viewLibrary": "View library",
-    "siteBlocked": "TikTok is blocking this request (HTTP 403). Logging in does not fix it. Waiting and trying again, or another network, often works."
+    "siteBlocked": "TikTok is blocking this request (HTTP 403). Turn on Browser mode for TikTok in Advanced, Engine, or try again later."
   },
   "preview": {
     "title": "Preview",
@@ -830,7 +830,9 @@
     "proxyDesc": "Send downloads through a proxy server. Leave empty to connect directly.",
     "reset": "Reset to defaults",
     "resetDesc": "Puts every setting on this page back the way it came.",
-    "resetDone": "Engine settings reset"
+    "resetDone": "Engine settings reset",
+    "tiktok": "Browser mode for TikTok",
+    "tiktokDesc": "Turn on if TikTok downloads fail with HTTP 403. Saves videos only."
   },
   "edit": {
     "empty": "Drop a photo, video or sound here",

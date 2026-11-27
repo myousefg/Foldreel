@@ -15,7 +15,7 @@ import { useSettings } from '@/context/SettingsProvider';
 // What each setting is when the app is new.
 const DEFAULTS = {
   max_concurrent: 2, default_range: '', skip_existing: true, write_metadata: false,
-  rate_limit: '', sleep_request: 0, retries: 4, proxy: '',
+  rate_limit: '', sleep_request: 0, retries: 4, proxy: '', tiktok_impersonate: 0,
 };
 
 const PARALLEL = [1, 2, 3, 4, 6, 8];
@@ -151,6 +151,9 @@ export default function EnginePanel() {
             value={s.proxy || ''} onChange={(e) => update({ proxy: e.target.value })}
             placeholder="socks5://127.0.0.1:1080" className="w-64 h-8 font-mono text-xs" data-testid="proxy"
           />
+        </Row>
+        <Row title={t('engine.tiktok')} desc={t('engine.tiktokDesc')}>
+          <Switch checked={!!s.tiktok_impersonate} onCheckedChange={(v) => update({ tiktok_impersonate: v ? 1 : 0 })} data-testid="tiktok-impersonate" />
         </Row>
       </Section>
 

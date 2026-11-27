@@ -955,3 +955,28 @@ def test_clear_finished_only_clears_the_chosen_status(live):
     assert count() == {"done": 0, "error": 0, "canceled": 1}
     assert live.request("DELETE", "/api/jobs")[0] == 200
     assert count() == {"done": 0, "error": 0, "canceled": 0}
+
+
+def test_tiktok_browser_mode_setting_and_command():
+    sys.path.insert(0, str(BACKEND_DIR))
+    import importlib
+    os.environ.setdefault("FOLDREEL_DATA", str(Path(os.environ.get("TEMP", "/tmp")) / "foldreel-edit-unit"))
+    srv = importlib.import_module("server")
+    assert srv._is_tiktok_url("https://www.tiktok.com/@someone") and srv._is_tiktok_url("https://vm.tiktok.com/abc/")
+    assert not srv._is_tiktok_url("https://nottiktok.com/@x") and not srv._is_tiktok_url("https://example.org/tiktok.com")
+    on = {"tiktok_impersonate": 1}
+    assert srv._tiktok_impersonate("https://www.tiktok.com/@a", on)
+    assert not srv._tiktok_impersonate("https://www.tiktok.com/@a", {"tiktok_impersonate": 0})
+    assert not srv._tiktok_impersonate("https://www.instagram.com/a", on)
+    argv = srv.build_tiktok_ytdlp_argv("https://www.tiktok.com/@a", {"default_range": "5", "retries": 3, "sleep_request": 1.5}, {}, "out.txt", "D:/dl", True)
+    j = " ".join(argv)
+    assert "--impersonate chrome" in j and "--playlist-items 1-5" in j and "--download-archive" in j and "--no-playlist" not in j
+    assert "-P D:/dl" in j and "tiktok/%(uploader" in j and "--sleep-requests 1.5" in j and "--retries 3" in j
+    assert "--download-archive" not in " ".join(srv.build_tiktok_ytdlp_argv("https://www.tiktok.com/@a", {}, {}, "o", "D:/dl", False))
+
+
+def test_tiktok_browser_mode_is_a_saved_setting(live):
+    assert live.request("PUT", "/api/settings", {"tiktok_impersonate": 1})[0] == 200
+    assert live.request("GET", "/api/settings")[1]["tiktok_impersonate"] == 1
+    assert live.request("PUT", "/api/settings", {"tiktok_impersonate": 0})[0] == 200
+    assert live.request("GET", "/api/settings")[1]["tiktok_impersonate"] == 0

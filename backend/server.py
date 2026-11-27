@@ -62,6 +62,7 @@ LOG_DIR = BASE_DIR / "logs"
 JOB_LOG_DIR = LOG_DIR / "jobs"
 JOB_LOG_DIR.mkdir(parents=True, exist_ok=True)
 ARCHIVE_PATH = BASE_DIR / "archive.sqlite"
+YTDLP_ARCHIVE_PATH = BASE_DIR / "ytdlp-archive.txt"   # yt-dlp's own record of what it has already saved
 CONFIG_PATH = BASE_DIR / "gallery-dl.json"
 CACHE_PATH = BASE_DIR / "gallery-dl-cache.sqlite3"   # gallery-dl's token/cursor cache
 TOOLS_DIR = BASE_DIR / "tools"
@@ -524,6 +525,7 @@ CREATE INDEX IF NOT EXISTS idx_organize_log_organized ON organize_log(organized_
             ("settings", "default_photo_format", "TEXT DEFAULT 'keep'"),
             ("settings", "default_video_format", "TEXT DEFAULT 'keep'"),
             ("settings", "delete_mode", "TEXT DEFAULT 'recycle'"),
+            ("settings", "tiktok_impersonate", "INTEGER DEFAULT 0"),
             ("jobs", "hint", "TEXT DEFAULT ''"),
             ("jobs", "files_json", "TEXT DEFAULT '[]'"),
             ("jobs", "watch_id", "TEXT DEFAULT ''"),
@@ -1024,6 +1026,48 @@ def build_ytdlp_argv(url: str, settings: dict, options: Optional[dict], print_to
     return argv
 
 
+def _is_tiktok_url(url: str) -> bool:
+    m = re.match(r"https?://([^/?#]+)", url or "", re.I)
+    host = (m.group(1).lower().split(":")[0] if m else "")
+    return host == "tiktok.com" or host.endswith(".tiktok.com")
+
+
+def _tiktok_impersonate(url: str, settings: dict) -> bool:
+    """TikTok answers the downloader built into gallery-dl with HTTP 403 now and then. The standalone yt-dlp can
+    pose as a real browser (it carries curl_cffi), so when the person has switched that on, TikTok links go there."""
+    return bool(int(settings.get("tiktok_impersonate") or 0)) and _is_tiktok_url(url)
+
+
+def build_tiktok_ytdlp_argv(url: str, settings: dict, options: Optional[dict], print_to_path: str,
+                            dest: str, use_archive: bool) -> List[str]:
+    url = _normalize_url(url)
+    options = options or {}
+    argv = [
+        ytdlp_bin(), "--newline", "--ignore-errors", "--impersonate", "chrome",
+        "--progress-template",
+        "download:FOLDREEL-PROGRESS %(progress.downloaded_bytes)s/%(progress.total_bytes_estimate,progress.total_bytes)s",
+        "--print-to-file", "after_move:%(filepath)s", print_to_path,
+        "-P", dest, "-o", "tiktok/%(uploader,channel,creator|unknown)s/%(id)s %(title).80B.%(ext)s",
+        "-t", "mp4",
+    ]
+    if use_archive:
+        argv += ["--download-archive", str(YTDLP_ARCHIVE_PATH)]
+    rng = _norm_range(str(options.get("range") or settings.get("default_range") or ""))
+    if re.fullmatch(r"\d+(-\d+)?", rng):
+        argv += ["--playlist-items", rng]
+    if settings.get("proxy"):
+        argv += ["--proxy", str(settings["proxy"]).strip()]
+    rate_limit = str(settings.get("rate_limit") or "").strip()
+    if rate_limit:
+        argv += ["-r", rate_limit]
+    sleep = float(settings.get("sleep_request") or 0)
+    if sleep > 0:
+        argv += ["--sleep-requests", str(sleep)]
+    argv += ["--retries", str(int(settings.get("retries", 4)))]
+    argv.append(url)
+    return argv
+
+
 _YTDLP_PROGRESS = re.compile(r"^FOLDREEL-PROGRESS (\d+)/(\d+|NA)$")
 _YTDLP_ERROR = re.compile(r"^ERROR:\s*(.*)$")
 _YTDLP_WARNING = re.compile(r"^WARNING:\s*(.*)$")
@@ -1338,7 +1382,7 @@ class JobManager:
         # media URL gallery-dl has no extractor for - yt-dlp's generic
         # downloader (which already handles a direct file URL, not just
         # recognized sites) is what actually fetches it.
-        if _is_youtube_url(url) or job_opts.get("referer"):
+        if _is_youtube_url(url) or job_opts.get("referer") or _tiktok_impersonate(url, settings):
             return await self._run_ytdlp(job_id, job_opts, dest, log_path)
 
         base_cfg = write_gdl_config()
@@ -1481,7 +1525,7 @@ class JobManager:
                 hint = "cookies_locked"
             elif _RATE_LIMIT.search(blob) or _RATE_LIMIT.search(tail):
                 hint = "rate_limited"
-            elif _site_for_url(url) == "tiktok" and (_BLOCKED_BY_SITE.search(blob) or _BLOCKED_BY_SITE.search(tail)):
+            elif _is_tiktok_url(url) and (_BLOCKED_BY_SITE.search(blob) or _BLOCKED_BY_SITE.search(tail)):
                 hint = "blocked"
             elif _AUTH_ERR.search(blob) or _AUTH_ERR.search(tail):
                 hint = "auth"
@@ -1600,7 +1644,13 @@ class JobManager:
             Path(filepath_out).unlink(missing_ok=True)
         except Exception:
             pass
-        argv = build_ytdlp_argv(url, settings, job_opts, filepath_out)
+        tiktok = _tiktok_impersonate(url, settings)
+        if tiktok:
+            # A profile is a playlist: yt-dlp keeps its own record of what it saved, so a watch only fetches new posts.
+            use_archive = bool(int(settings.get("skip_existing", 1))) or bool(row.get("watch_id"))
+            argv = build_tiktok_ytdlp_argv(url, settings, job_opts, filepath_out, dest, use_archive)
+        else:
+            argv = build_ytdlp_argv(url, settings, job_opts, filepath_out)
 
         db_run(
             "UPDATE jobs SET status='running', started_at=?, dest_dir=?, command=?, log_path=?, hint='' WHERE id=?",
@@ -1630,6 +1680,7 @@ class JobManager:
         logf = open(log_path, "w", encoding="utf-8", errors="replace")
         logf.write(" ".join(argv) + "\n\n")
         errors: List[str] = []
+        skipped = 0
         last_flush = 0.0
         cur_bytes = tot_bytes = None
 
@@ -1640,6 +1691,8 @@ class JobManager:
                     break
                 raw = chunk.decode("utf-8", errors="replace")
                 logf.write(raw)
+                if "already been recorded in the archive" in raw:
+                    skipped += 1
                 for piece in raw.replace("\r", "\n").split("\n"):
                     kind, text = classify_ytdlp_line(piece)
                     if kind == "progress":
@@ -1678,8 +1731,10 @@ class JobManager:
         self.pausing.discard(job_id)
 
         final_path = ""
+        written_files: List[str] = []
         try:
-            final_path = Path(filepath_out).read_text(encoding="utf-8", errors="replace").strip()
+            written_files = [ln.strip() for ln in Path(filepath_out).read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
+            final_path = written_files[-1] if written_files else ""
         except Exception:
             pass
         finally:
@@ -1687,22 +1742,23 @@ class JobManager:
                 Path(filepath_out).unlink(missing_ok=True)
             except Exception:
                 pass
-
-        written_files = [final_path] if final_path else []
         # A genuine successful exit wins even over cancel/pause - see the
         # matching comment in _run(). rc == 0 with a final_path means yt-dlp
         # actually finished and moved the file into place, which a taskkill
         # can't produce on its own.
+        # A profile can save most posts and fail a few: that still counts as done, with the failures listed.
+        # Everything already saved on an earlier run (a watch check with nothing new) is done too, not an error.
+        nothing_new = tiktok and rc == 0 and skipped > 0 and not errors
         status = (
-            "done" if (rc == 0 and final_path)
+            "done" if ((rc == 0 and final_path) or (tiktok and final_path) or nothing_new)
             else "canceled" if cancelled
             else "paused" if paused
             else "error"
         )
         counts = {
-            "files_ok": 1 if status == "done" else 0,
-            "files_skipped": 0,
-            "files_error": 0 if status == "done" else (1 if status == "error" else 0),
+            "files_ok": len(written_files) if status == "done" else 0,
+            "files_skipped": skipped,
+            "files_error": (len(errors) if tiktok else 0) if status == "done" else (max(1, len(errors)) if status == "error" and tiktok else (1 if status == "error" else 0)),
         }
         if status == "error" and not errors:
             errors = ["yt-dlp exited without producing a file; see log for details"]
@@ -2493,6 +2549,7 @@ class SettingsIn(BaseModel):
     language: Optional[str] = None
     autostart: Optional[bool] = None
     delete_mode: Optional[str] = None  # recycle | permanent
+    tiktok_impersonate: Optional[int] = None  # 1 = download TikTok through yt-dlp posing as a browser
 
 
 class PreviewIn(BaseModel):
@@ -3046,7 +3103,7 @@ async def write_settings(body: SettingsIn):
         "rate_limit", "proxy", "sleep_request", "retries", "skip_existing", "write_metadata",
         "default_photo_format", "default_video_format",
         "notifications_enabled",
-        "cookies_mode", "cookies_browser", "cookies_file", "theme", "language", "autostart", "delete_mode", "updated_at",
+        "cookies_mode", "cookies_browser", "cookies_file", "theme", "language", "autostart", "delete_mode", "tiktok_impersonate", "updated_at",
     ]
     db_run(
         f"UPDATE settings SET {', '.join(f'{c}=?' for c in cols)} WHERE id='singleton'",

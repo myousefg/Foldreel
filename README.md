@@ -2,11 +2,11 @@
 
 # Foldreel
 
-### Download. Convert. Rename. Watch. One app for your whole media library.
+### Download. Convert. Edit. Rename. Watch. One app for your whole media library.
 
 A native Windows desktop app that handles media end to end: pull full albums and videos from
-your favorite sites, convert or compress anything you drop in, batch-rename files and folders
-into clean albums, and watch pages for new posts automatically. No command line, no config
+your favorite sites, convert or compress anything you drop in, trim and touch up photos and videos,
+batch-rename files and folders into clean albums, and watch pages for new posts automatically. No command line, no config
 files, no juggling four different tools.
 
 [![Version](https://img.shields.io/badge/version-1.2.0-blue?style=flat-square)](https://github.com/myousefg/Foldreel/releases/latest)
@@ -33,12 +33,12 @@ files, no juggling four different tools.
 
 ## Features
 
-Four tools in one app, sharing one queue, library, and set of settings:
+Five tools in one app, sharing one queue, library, and set of settings:
 
 - **Download** full-resolution photos, videos, and galleries from 300+ sites.
 - **Convert** photos and videos (HEIC, MOV, and more) to JPG, PNG, WebP, MP4, or GIF. Save a single frame of a video as a picture.
 - **Organize** files and folders with bulk renaming, in whatever order you drag them.
-- **Edit** photos, videos and sounds: trim on a timeline, crop, turn, flip, looks and colour, text, speed and volume, then save a copy or a single frame.
+- **Edit** photos, videos and sounds: trim on a timeline, crop, turn, flip, looks and colour, text, speed and volume, then save a copy or a single frame. The original is never changed.
 - **Watch** a page on a schedule so new posts download themselves.
 
 ### Downloading
@@ -47,13 +47,15 @@ Four tools in one app, sharing one queue, library, and set of settings:
 - **Full albums at full resolution.** Foldreel fetches the original files, not the compressed thumbnails a feed shows.
 - **Live queue.** Progress for each download, with a streaming log.
 - **Preview before you commit.** See what a link will download before it downloads anything.
-- **Library.** Browse your download folder like a file manager: folders, five views, search, drag and drop, favorites, tags, a duplicates finder, and a check for corrupted files. Delete goes to the Recycle Bin, or permanently if you choose.
+- **Library.** Browse your download folder like a file manager: folders, five views, search, drag and drop, favorites, tags, a duplicates finder, and a check for corrupted files (pictures cut short, videos that never finished). Videos play inside the app. Click to select, double-click to open, and press and hold, or drag a box, to select many. Delete goes to the Recycle Bin, or permanently if you choose.
 - **History.** Every finished download, grouped by day, with full-size previews, one click to open the folder, and one click to download it again.
 - **Built-in logins.** Cookies, username and password, or OAuth, saved per site. You set each up once.
 - **YouTube.** Pick a quality and format, audio-only included.
 - **Automatic GIFs.** A Twitter/X "GIF" is a video file in disguise. Foldreel turns it into a real `.gif`.
 - **Skip what you have.** Run the same link later and only new files download.
-- **Watch a page.** Check any URL every 15 minutes to 24 hours and download only what is new.
+- **Watch a page.** Check any URL every 15 minutes to 24 hours and download only what is new. Each watch can save to its own folder.
+- **Direct links.** Paste a link to a picture, video or sound file, or a video stream, and Foldreel downloads it.
+- **TikTok.** If TikTok blocks profile downloads, turn on the browser-like mode in Advanced, Engine.
 
 ### Converting and organizing
 
@@ -63,7 +65,8 @@ Four tools in one app, sharing one queue, library, and set of settings:
 
 ### Everything else
 
-- **A browser extension** sends the current tab to Foldreel, adds a hover button to images and videos, and shares a site's login cookies in one click. It also has a keyboard shortcut (Alt+Shift+F).
+- **A browser extension** sends the current tab to Foldreel, adds a hover button to images and videos that sends exactly what you pointed at, blocks pop-ups, and shares a site's login cookies in one click. It also has a keyboard shortcut (Alt+Shift+F).
+- **Also on the Microsoft Store**, which keeps the app and its tools up to date for you.
 - **More than 40 languages**, with automatic detection and full right-to-left support.
 - **Light, dark, or system theme**, with keyboard and screen-reader support.
 - **Runs in the background.** Minimize to the tray and downloads continue.
@@ -82,6 +85,10 @@ Foldreel never touches gallery-dl configuration or caches already on your machin
   <tr>
     <td width="50%"><img src="docs/screenshots/convert.png" alt="Convert page with a list of photos and format and quality controls"><br><sub><b>Convert.</b> One format and quality for the batch, or one per file.</sub></td>
     <td width="50%"><img src="docs/screenshots/sites.png" alt="Sites page listing supported sites with their logos"><br><sub><b>Sites.</b> Logins and cookies for each site, in one place.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/library-grid.png" alt="Library showing a folder of pictures as medium icons"><br><sub><b>Library.</b> Your download folder as a file manager, with a check for duplicates and corrupted files.</sub></td>
+    <td width="50%"><img src="docs/screenshots/edit.png" alt="Edit page showing looks applied to a picture"><br><sub><b>Edit.</b> Trim, crop, looks, text and more, saved as a copy.</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/downloads-dark.png" alt="Downloads page in dark theme"><br><sub><b>Dark theme.</b> Light, dark, or follow Windows.</sub></td>
@@ -151,15 +158,14 @@ The extension sends the page you are on to Foldreel, so you can skip copying the
 1. Get it from the [Chrome Web Store](https://chromewebstore.google.com/detail/ipmdcekleimdpcnokecigllimfcjaekn), or download `Foldreel-Extension-x.x.x.zip` from the
    [latest release](https://github.com/myousefg/Foldreel/releases/latest), unzip it, open
    `chrome://extensions`, turn on **Developer mode**, and choose **Load unpacked**. Edge and Brave work the same way.
-2. In Foldreel, open **Advanced**, then **Extension**, and turn it on. Copy the pairing code.
-3. Click the Foldreel icon in your browser toolbar, paste the code, and choose **Connect**.
+2. In Foldreel, open **Advanced**, then **Extension**, and press **Link**. The extension connects by itself. (You can also copy the pairing code, click the Foldreel icon in your browser toolbar, paste it, and choose **Connect**.)
 
 **Use**
 
 - Click the toolbar icon, or press **Alt+Shift+F**, to send the current page.
 - Right-click a link, image, or video and choose **Send to Foldreel**.
-- Hover an image or video to show a **Foldreel** button on it. Turn the button off for a single site from the popup, or everywhere from the extension's settings page.
-- The extension also blocks pop-ups and pop-unders, and hides invisible layers, links and ad frames that sit over a page to catch your clicks, and closes tabs that such pages redirect to. Turn it off for a single site from the popup, or everywhere from the settings page.
+- Hover an image or video to show a **Foldreel** button on it. For a video it sends the post it belongs to (a clip in a TikTok or Instagram grid, a tweet in a feed), or the video file; for a picture, the picture itself. Hover the button to see the link. Switch it off for a single site or for every site from the popup.
+- The extension also blocks pop-ups and pop-unders, and hides invisible layers, links and ad frames that sit over a page to catch your clicks, and closes tabs that such pages redirect to. Switch it off for a single site or for every site from the popup.
 - Choose **Add** in the popup to share your login for the current site. If Foldreel already has that site's cookies, the button reads **Replace**.
 
 The extension talks only to Foldreel on your own computer, at `127.0.0.1`. It reads cookies only when you press the cookie button. See [extension/README.md](extension/README.md) for details.

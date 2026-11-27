@@ -1,78 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AnimatePresence, motion } from 'motion/react';
-import {
-  Loader2, Download, Check, RefreshCw, Trash2, ChevronDown, Puzzle, Copy, ShieldOff, Plus,
-} from 'lucide-react';
+import { Loader2, ChevronDown, Trash2, Plus } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
-import { Section, Row } from '@/components/settingsUi';
+import { Section } from '@/components/settingsUi';
 import SubNav from '@/components/SubNav';
+import ExtensionPanel from '@/components/advanced/ExtensionPanel';
+import EnginePanel from '@/components/advanced/EnginePanel';
 import { TokenMenu, NAME_TOKENS, NAME_TOKEN_TEXT } from '@/components/OutputSettings';
 import { useI18n } from '@/context/I18nProvider';
 import { useSettings } from '@/context/SettingsProvider';
-import { extensionApi, presetsApi } from '@/lib/api';
-import { isElectron, openExternal } from '@/lib/electron';
+import { presetsApi } from '@/lib/api';
+import { openExternal } from '@/lib/electron';
 import { snappy } from '@/lib/motion';
-
-// Set once the Chrome Web Store listing is live (Developer Dashboard -> the
-// item -> "Public URL" once it's approved and public); falls back to a direct
-// zip download until then.
-const CHROME_STORE_URL = '';
 
 export default function Advanced() {
   const { t } = useI18n();
-  const { settings: s, update, reloadSettings } = useSettings();
+  const { settings: s } = useSettings();
   const [tab, setTab] = useState('extension');
-
-  const num = (k, v, fallback) => update({ [k]: v === '' ? fallback : Number(v) });
-
-  const [extSecret, setExtSecret] = useState(null); // null = not loaded yet
-  const [extBusy, setExtBusy] = useState(false);
-  const [extCopied, setExtCopied] = useState(false);
-  useEffect(() => {
-    if (s && extSecret === null) setExtSecret(s.extension_secret || '');
-  }, [s, extSecret]);
-  // A pairing code existing just means it's enabled, not that a browser
-  // extension has actually used it - only extension_last_used (set by the
-  // backend the first time a request authenticates with it) means that.
-  const extConnected = !!(extSecret && s?.extension_last_used);
-  const enableExtension = async () => {
-    setExtBusy(true);
-    try {
-      setExtSecret((await extensionApi.enable()).extension_secret);
-      reloadSettings(); // clears the stale extension_last_used from any old code
-    }
-    catch { toast.error(t('settings.saveFailed')); }
-    finally { setExtBusy(false); }
-  };
-  const disableExtension = async () => {
-    setExtBusy(true);
-    try { setExtSecret((await extensionApi.disable()).extension_secret); }
-    catch { toast.error(t('settings.saveFailed')); }
-    finally { setExtBusy(false); }
-  };
-  const openExtensionFolder = async () => {
-    if (!isElectron) return;
-    try {
-      const dir = await window.electronAPI.getExtensionDir();
-      if (dir) await window.electronAPI.openPath(dir);
-      else toast.error(t('settings.saveFailed'));
-    } catch { toast.error(t('settings.saveFailed')); }
-  };
-  const copyExtensionSecret = async () => {
-    try {
-      await navigator.clipboard.writeText(extSecret);
-      setExtCopied(true);
-      setTimeout(() => setExtCopied(false), 1500);
-    } catch { toast.error(t('settings.saveFailed')); }
-  };
 
   if (!s) {
     return <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> {t('common.loading')}</div>;
@@ -87,117 +33,8 @@ export default function Advanced() {
         ['presets', t('settings.presets')],
       ]}
     >
-      {tab === 'extension' && (
-      <Section
-        label={t('settings.extension')}
-        aside={extConnected ? (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden="true" /> {t('settings.extensionConnected')}
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" aria-hidden="true" /> {t('settings.extensionDisabled')}
-          </span>
-        )}
-      >
-        {!extConnected && (() => {
-          const download = CHROME_STORE_URL
-            ? { title: t('settings.extensionDownload'), desc: t('settings.extensionDownloadStoreDesc'), label: t('settings.extensionDownloadStore'), action: () => openExternal(CHROME_STORE_URL) }
-            : { title: t('settings.extensionOpenFolder'), desc: t('settings.extensionOpenFolderDesc'), label: t('settings.extensionOpenFolder'), action: openExtensionFolder };
-          return (
-            <Row title={download.title} desc={download.desc}>
-              <Button variant="outline" size="sm" onClick={download.action}>
-                <Download className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />
-                {download.label}
-              </Button>
-            </Row>
-          );
-        })()}
-        {!extSecret ? (
-          <Row title={t('settings.extensionEnable')} desc={t('settings.extensionEnableDesc')}>
-            <Button size="sm" onClick={enableExtension} disabled={extBusy || extSecret === null}>
-              {extBusy ? <Loader2 className="w-3.5 h-3.5 me-1.5 animate-spin" aria-hidden="true" /> : <Puzzle className="w-3.5 h-3.5 me-1.5" aria-hidden="true" />}
-              {t('settings.extensionEnable')}
-            </Button>
-          </Row>
-        ) : (
-          <>
-            <Row title={t('settings.extensionCode')} desc={t('settings.extensionCodeDesc')}>
-              <code className="font-mono text-[11px] text-muted-foreground break-all max-w-[220px] block">{extSecret}</code>
-              <Button
-                variant="outline" size="icon" onClick={copyExtensionSecret}
-                title={t('settings.extensionCopy')}
-                aria-label={extCopied ? t('settings.extensionCopied') : t('settings.extensionCopy')}
-              >
-                {extCopied ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
-              </Button>
-            </Row>
-            <Row title={t('settings.extensionRegenerate')} desc={t('settings.extensionRegenerateDesc')}>
-              <Button variant="outline" size="sm" onClick={enableExtension} disabled={extBusy}>
-                <RefreshCw className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('settings.extensionRegenerate')}
-              </Button>
-            </Row>
-            <Row title={t('settings.extensionDisable')}>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" disabled={extBusy}>
-                    <ShieldOff className="w-3.5 h-3.5 me-1.5" aria-hidden="true" /> {t('settings.extensionDisable')}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>{t('settings.extensionDisableConfirm')}</AlertDialogTitle>
-                    <AlertDialogDescription>{t('settings.extensionDisableConfirmDesc')}</AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-                    <AlertDialogAction onClick={disableExtension}>{t('common.confirm')}</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </Row>
-          </>
-        )}
-      </Section>
-      )}
-
-      {tab === 'engine' && (
-      <Section label={t('settings.engine')}>
-        <Row title={t('settings.maxConcurrent')} desc={t('settings.maxConcurrentDesc')}>
-          <Input type="number" min={0} max={16} value={s.max_concurrent ?? 2}
-            onChange={e => num('max_concurrent', e.target.value, 0)} className="w-20" data-testid="max-concurrent" />
-        </Row>
-        <Row title={t('settings.defaultLimit')} desc={t('settings.defaultLimitDesc')}>
-          <Input
-            value={s.default_range || ''} onChange={e => update({ default_range: e.target.value })}
-            placeholder={t('settings.defaultLimitPlaceholder')} className="w-28 font-mono text-xs"
-          />
-        </Row>
-        <Row title={t('settings.skipExisting')} desc={t('settings.skipExistingDesc')}>
-          <Switch checked={!!s.skip_existing} onCheckedChange={v => update({ skip_existing: v })} data-testid="skip-existing" />
-        </Row>
-        <Row title={t('settings.writeMetadata')} desc={t('settings.writeMetadataDesc')}>
-          <Switch checked={!!s.write_metadata} onCheckedChange={v => update({ write_metadata: v })} />
-        </Row>
-        <Row title={t('settings.rateLimit')} desc={t('settings.rateLimitDesc')}>
-          <Input value={s.rate_limit || ''} onChange={e => update({ rate_limit: e.target.value })}
-            placeholder="1M" className="w-24 font-mono text-xs" />
-        </Row>
-        <Row title={t('settings.sleepRequest')} desc={t('settings.sleepRequestDesc')}>
-          <Input type="number" min={0} step={0.5} value={s.sleep_request ?? 0}
-            onChange={e => num('sleep_request', e.target.value, 0)} className="w-20" />
-        </Row>
-        <Row title={t('settings.retries')} desc={t('settings.retriesDesc')}>
-          <Input type="number" min={0} max={99} value={s.retries ?? 4}
-            onChange={e => num('retries', e.target.value, 0)} className="w-20" />
-        </Row>
-        <Row title={t('settings.proxy')} desc={t('settings.proxyDesc')}>
-          <Input value={s.proxy || ''} onChange={e => update({ proxy: e.target.value })}
-            placeholder="socks5://127.0.0.1:1080" className="w-64 font-mono text-xs" data-testid="proxy" />
-        </Row>
-      </Section>
-      )}
-
+      {tab === 'extension' && <ExtensionPanel />}
+      {tab === 'engine' && <EnginePanel />}
       {tab === 'presets' && <PresetsSection />}
     </SubNav>
   );

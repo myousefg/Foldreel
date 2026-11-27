@@ -660,3 +660,54 @@ def test_delete_mode_is_a_setting_that_only_takes_two_values(live):
     assert live.request("PUT", "/api/settings", {"delete_mode": "permanent"})[1]["delete_mode"] == "permanent"
     assert live.request("PUT", "/api/settings", {"delete_mode": "shred"})[0] == 400
     assert live.request("PUT", "/api/settings", {"delete_mode": "recycle"})[1]["delete_mode"] == "recycle"
+
+
+# ── extension check-in and one-click linking ─────────────────────────────────
+def test_extension_hello_only_answers_a_browser_extension(live):
+    hello = {"version": "1.2.3", "paired": False}
+    # A web page (or anything without an extension origin) is refused, with or without the app token.
+    assert live.request("POST", "/api/extension-hello", hello, token=False)[0] == 403
+    assert live.request("POST", "/api/extension-hello", hello, headers={"Origin": "https://evil.example"}, token=False)[0] == 403
+    ext = {"Origin": "chrome-extension://abcdefghijklmnop"}
+    status, body = live.request("POST", "/api/extension-hello", hello, headers=ext, token=False)
+    assert status == 200 and body["linked"] is False and "secret" not in body
+    _, s = live.request("GET", "/api/settings")
+    assert s["extension_version"] == "1.2.3" and s["extension_seen_at"]
+
+
+def test_extension_link_window_hands_over_the_code_once(live):
+    live.request("DELETE", "/api/extension-pairing")
+    ext = {"Origin": "chrome-extension://abcdefghijklmnop"}
+    # Closed window: nothing is handed over.
+    _, body = live.request("POST", "/api/extension-hello", {"version": "1.2.3"}, headers=ext, token=False)
+    assert body["linked"] is False
+    assert live.request("POST", "/api/extension-link")[0] == 200
+    _, body = live.request("POST", "/api/extension-hello", {"version": "1.2.3"}, headers=ext, token=False)
+    assert body["linked"] is True and len(body["secret"]) >= 32
+    # The code works on the extension routes, and the window is closed again.
+    assert live.request("GET", "/api/extension/ping", headers={"X-Foldreel-Extension-Token": body["secret"]}, token=False)[0] == 200
+    _, again = live.request("POST", "/api/extension-hello", {"version": "1.2.3"}, headers=ext, token=False)
+    assert again["linked"] is False and "secret" not in again
+    live.request("DELETE", "/api/extension-pairing")
+
+
+def test_extension_link_can_be_cancelled(live):
+    live.request("POST", "/api/extension-link")
+    assert live.request("DELETE", "/api/extension-link")[0] == 200
+    ext = {"Origin": "chrome-extension://abcdefghijklmnop"}
+    _, body = live.request("POST", "/api/extension-hello", {"version": "1"}, headers=ext, token=False)
+    assert body["linked"] is False
+
+
+# ── watched creator pictures ─────────────────────────────────────────────────
+def test_watch_avatar_endpoint_and_flag(live):
+    status, w = live.request("POST", "/api/watches", {"url": "https://example.org/u/someone", "interval_min": 60})
+    assert status == 200 and w["has_avatar"] is False
+    assert live.request("GET", f"/api/watches/{w['id']}/avatar")[0] == 404
+    (live.data / "avatars").mkdir(exist_ok=True)
+    (live.data / "avatars" / f"{w['id']}.img").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
+    _, listed = live.request("GET", "/api/watches")
+    assert [x for x in listed if x["id"] == w["id"]][0]["has_avatar"] is True
+    assert live.request("GET", f"/api/watches/{w['id']}/avatar")[0] == 200
+    assert live.request("DELETE", f"/api/watches/{w['id']}")[0] == 200
+    assert not (live.data / "avatars" / f"{w['id']}.img").exists()

@@ -59,19 +59,23 @@ export default function History() {
     canceled: finished.filter(j => j.status === 'canceled').length,
   }), [finished]);
 
+  // Newest first by when each one finished. The shared list is ordered by when a job was
+  // created, so a download that was queued yesterday and finished today would otherwise
+  // sit under the wrong day and split a day into several groups.
   const rows = useMemo(() => finished.filter(j => {
     if (status !== 'all' && j.status !== status) return false;
     if (query && !j.url.toLowerCase().includes(query.toLowerCase())) return false;
     return true;
-  }), [finished, query, status]);
+  }).sort((a, b) => (b.finished_at || b.created_at || '').localeCompare(a.finished_at || a.created_at || '')), [finished, query, status]);
 
-  // Newest first, grouped under a heading per day.
+  // Grouped under a heading per day. The key is the first job in the group, never the label,
+  // so two groups can not share a key and leave stale rows behind when the filter changes.
   const groups = useMemo(() => {
     const out = [];
     for (const job of rows) {
       const label = dayLabel(job.finished_at || job.created_at, lang);
       const last = out[out.length - 1];
-      if (last && last.label === label) last.jobs.push(job); else out.push({ label, jobs: [job] });
+      if (last && last.label === label) last.jobs.push(job); else out.push({ label, key: job.id, jobs: [job] });
     }
     return out;
   }, [rows, lang]);
@@ -130,7 +134,7 @@ export default function History() {
       ) : (
         <div className="space-y-7">
           {groups.map(g => (
-            <section key={g.label} aria-label={g.label}>
+            <section key={g.key} aria-label={g.label}>
               <h2 className="text-[13px] font-semibold mb-1.5 px-3">{g.label}</h2>
               <div className="list">
                 {g.jobs.map(job => (

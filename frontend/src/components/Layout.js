@@ -28,7 +28,8 @@ export default function Layout({ children }) {
     <HeaderSlots.Provider value={{ actions: actionsEl, subtitle: subtitleEl }}>
       <div className="relative flex h-screen overflow-clip bg-background" data-testid="app-layout">
         <Sidebar />
-        <main className="relative flex-1 min-w-0 overflow-y-auto overscroll-contain">
+        {/* layoutScroll tells list animations (drag to reorder) that this box scrolls, so rows do not jump while it does */}
+        <motion.main layoutScroll className="relative flex-1 min-w-0 overflow-y-auto overscroll-contain">
           <motion.div
             key={location.pathname}
             initial={routeFade.initial}
@@ -47,7 +48,7 @@ export default function Layout({ children }) {
             </header>
             {children}
           </motion.div>
-        </main>
+        </motion.main>
       </div>
     </HeaderSlots.Provider>
   );

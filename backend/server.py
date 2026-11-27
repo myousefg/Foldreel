@@ -528,6 +528,7 @@ CREATE INDEX IF NOT EXISTS idx_organize_log_organized ON organize_log(organized_
             ("settings", "tiktok_impersonate", "INTEGER DEFAULT 0"),
             ("jobs", "hint", "TEXT DEFAULT ''"),
             ("jobs", "files_json", "TEXT DEFAULT '[]'"),
+            ("jobs", "skipped_json", "TEXT DEFAULT '[]'"),
             ("jobs", "watch_id", "TEXT DEFAULT ''"),
             ("conversions", "options_json", "TEXT DEFAULT '{}'"),
         ]:
@@ -1069,6 +1070,8 @@ def build_tiktok_ytdlp_argv(url: str, settings: dict, options: Optional[dict], p
 
 
 _YTDLP_PROGRESS = re.compile(r"^FOLDREEL-PROGRESS (\d+)/(\d+|NA)$")
+_YTDLP_ITEM = re.compile(r"^\[download\] Downloading item (\d+) of (\d+)")
+_YTDLP_DEST = re.compile(r"^\[download\] Destination: (.+)$")
 _YTDLP_ERROR = re.compile(r"^ERROR:\s*(.*)$")
 _YTDLP_WARNING = re.compile(r"^WARNING:\s*(.*)$")
 
@@ -1136,6 +1139,7 @@ def _job_public(row: Optional[dict]) -> dict:
     except Exception:
         row["options"] = {}
     row.pop("files_json", None)  # internal; served via GET /jobs/{id}/files
+    row.pop("skipped_json", None)
     return row
 
 
@@ -1436,6 +1440,7 @@ class JobManager:
         cur = None
         written_dirs: set = set()
         written_files: List[str] = []
+        skipped_files: List[str] = []  # the files this job found already saved, so History can show them
 
         try:
             while True:
@@ -1459,6 +1464,8 @@ class JobManager:
                             written_files.append(str(Path(dest, text)))
                     elif kind == "skip":
                         counts["files_skipped"] += 1
+                        if len(skipped_files) < 500:
+                            skipped_files.append(str(Path(dest, text)))
                         # A re-run that finds everything already downloaded
                         # (a bookmarks import re-import, a retried job, ...)
                         # writes no "file" lines at all - only "skip" ones,
@@ -1618,14 +1625,59 @@ class JobManager:
                     pass
 
         db_run(
-            """UPDATE jobs SET status=?, files_ok=?, files_skipped=?, files_error=?, files_json=?,
+            """UPDATE jobs SET status=?, files_ok=?, files_skipped=?, files_error=?, files_json=?, skipped_json=?,
                    error_text=?, return_code=?, hint=?, dest_dir=?, current_file='', finished_at=? WHERE id=?""",
             (status, counts["files_ok"], counts["files_skipped"], counts["files_error"], json.dumps(written_files),
-             "\n".join(errors[-20:]), rc, hint, dest_final, _now(), job_id),
+             json.dumps(skipped_files), "\n".join(errors[-20:]), rc, hint, dest_final, _now(), job_id),
         )
         await self._finalize_job_broadcast(job_id)
         async with self.cond:
             self.cond.notify_all()
+
+    async def _tiktok_photo_pass(self, job_id: str, url: str, dest: str, settings: dict, job_opts: dict,
+                                 log_path: str) -> Tuple[List[str], int, List[str]]:
+        """Photo posts and the profile picture of a TikTok page, with gallery-dl. Its own downloader for videos is the
+        one TikTok refuses, so videos are off here (yt-dlp has just taken them). Returns (files, skipped, errors)."""
+        files: List[str] = []
+        errors: List[str] = []
+        skipped = 0
+        try:
+            overrides = {"extractor": {"base-directory": dest, "tiktok": {"videos": False, "audio": False, "cookies": None}}}
+            cfg_path = write_job_config(job_id, overrides, base_cfg=write_gdl_config())
+            argv = build_argv(url, settings, job_opts, config_path=cfg_path)
+            creationflags = (subprocess.CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW) if os.name == "nt" else 0
+            proc = await asyncio.create_subprocess_exec(
+                *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+                creationflags=creationflags, env=sub_env(), cwd=dest, start_new_session=(os.name != "nt"),
+            )
+        except Exception as e:  # noqa: BLE001 - the videos are already saved; say why the photos were skipped
+            return [], 0, [f"Photos could not be fetched: {e}"]
+        self.running[job_id] = proc
+        logf = open(log_path, "a", encoding="utf-8", errors="replace")
+        logf.write("\n--- photos and profile picture (gallery-dl) ---\n" + " ".join(argv) + "\n\n")
+        try:
+            while True:
+                chunk = await proc.stdout.readline()
+                if not chunk:
+                    break
+                raw = chunk.decode("utf-8", errors="replace")
+                logf.write(raw)
+                for piece in raw.replace("\r", "\n").split("\n"):
+                    kind, text = classify_line(piece)
+                    if kind == "file":
+                        files.append(str(Path(dest, text)))
+                    elif kind == "skip":
+                        skipped += 1
+                    elif kind == "error":
+                        errors.append(text)
+                    if kind in ("file", "skip", "error", "warning"):
+                        await ws_manager.broadcast({"type": "job.line", "id": job_id, "kind": kind, "text": text})
+            await proc.wait()
+        finally:
+            logf.flush()
+            logf.close()
+            self.running.pop(job_id, None)
+        return files, skipped, errors
 
     async def _run_ytdlp(self, job_id: str, job_opts: dict, dest: str, log_path: str):
         """YouTube path: a direct yt-dlp subprocess, parallel to gallery-dl's
@@ -1683,6 +1735,11 @@ class JobManager:
         skipped = 0
         last_flush = 0.0
         cur_bytes = tot_bytes = None
+        # A profile is a playlist: progress is "post N of M", not the bytes of the current file, which start
+        # over for every video and made the bar jump back to zero.
+        item_idx = item_total = started = 0
+        cur_name = ""
+        best_pct = 0
 
         try:
             while True:
@@ -1695,6 +1752,21 @@ class JobManager:
                     skipped += 1
                 for piece in raw.replace("\r", "\n").split("\n"):
                     kind, text = classify_ytdlp_line(piece)
+                    if tiktok:
+                        mi = _YTDLP_ITEM.match(piece.strip())
+                        if mi:
+                            item_idx, item_total = int(mi.group(1)), int(mi.group(2))
+                        md = _YTDLP_DEST.match(piece.strip())
+                        if md:
+                            started += 1
+                            full = md.group(1).strip()
+                            try:
+                                cur_name = os.path.relpath(full, dest) if os.path.isabs(full) else full
+                            except ValueError:
+                                cur_name = full
+                            await ws_manager.broadcast({"type": "job.line", "id": job_id, "kind": "file", "text": cur_name})
+                        if "already been recorded in the archive" in piece:
+                            await ws_manager.broadcast({"type": "job.line", "id": job_id, "kind": "skip", "text": piece.replace("[download] ", "").strip()})
                     if kind == "progress":
                         m = _YTDLP_PROGRESS.match(text)
                         if m:
@@ -1713,10 +1785,21 @@ class JobManager:
                         if (cur_bytes is not None and tot_bytes) else ""
                     )
                     pct = round(cur_bytes * 100 / tot_bytes) if (cur_bytes is not None and tot_bytes) else None
+                    saved_now = 0
+                    if tiktok:
+                        saved_now = max(0, started - 1)
+                        if item_total:
+                            frac = min(1.0, (cur_bytes or 0) / tot_bytes) if tot_bytes else 0.0
+                            pct = min(99, round(((item_idx - 1) + frac) * 100 / item_total))
+                            best_pct = max(best_pct, pct)  # never steps backwards
+                            pct = best_pct
+                        else:
+                            pct = None
+                        label = f"{item_idx}/{item_total} · {cur_name[-70:]}" if item_total else cur_name[-70:]
                     db_run("UPDATE jobs SET current_file=? WHERE id=?", (label[:400], job_id))
                     await ws_manager.broadcast({
                         "type": "job.progress", "id": job_id,
-                        "files_ok": 0, "files_skipped": 0, "files_error": len(errors),
+                        "files_ok": saved_now, "files_skipped": skipped, "files_error": len(errors),
                         "current_file": label, "pct": pct,
                     })
             rc = await proc.wait()
@@ -1746,6 +1829,15 @@ class JobManager:
         # matching comment in _run(). rc == 0 with a final_path means yt-dlp
         # actually finished and moved the file into place, which a taskkill
         # can't produce on its own.
+        # yt-dlp takes videos only. gallery-dl, with videos switched off, takes the photo posts and the profile picture.
+        if tiktok and not cancelled and not paused:
+            photos, photo_skipped, photo_errors = await self._tiktok_photo_pass(job_id, url, dest, settings, job_opts, log_path)
+            written_files += photos
+            skipped += photo_skipped
+            errors += photo_errors
+            if photos and not final_path:
+                final_path = photos[-1]
+
         # A profile can save most posts and fail a few: that still counts as done, with the failures listed.
         # Everything already saved on an earlier run (a watch check with nothing new) is done too, not an error.
         nothing_new = tiktok and rc == 0 and skipped > 0 and not errors
@@ -3462,17 +3554,29 @@ def job_files(job_id: str, limit: int = Query(60, le=300)):
                 seen.add(str(q))
                 resolved.append(q)
 
-    # A re-check that found nothing new (every file skipped) records no files,
-    # yet its folder holds what the watch has collected. When the job has its
-    # own folder, show that instead of an empty panel.
+    # A run that found everything already saved writes no files. Show the files it skipped: those are what
+    # was asked for. (Older jobs did not record them, so they fall back to the job's own folder, but only a
+    # creator folder: a site folder holds everybody's pictures, and the newest of those are not this job's.)
     if not resolved and int(row.get("files_skipped") or 0) > 0:
-        dest = Path((row.get("dest_dir") or "").strip() or ".")
         try:
-            own_folder = dest.is_dir() and dest.resolve() not in _output_roots() and _under_output(dest)
-        except OSError:
-            own_folder = False
-        if own_folder:
-            resolved = _scan_media(dest)
+            skipped = json.loads(row.get("skipped_json") or "[]")
+        except ValueError:
+            skipped = []
+        for raw in skipped:
+            for q in _resolve_recorded_file(Path(raw)):
+                if str(q) not in seen:
+                    seen.add(str(q))
+                    resolved.append(q)
+        if not resolved:
+            dest = Path((row.get("dest_dir") or "").strip() or ".")
+            try:
+                rd = dest.resolve()
+                depth = min((len(rd.relative_to(r).parts) for r in _output_roots() if rd.is_relative_to(r)), default=0)
+                own_folder = dest.is_dir() and depth >= 2
+            except (OSError, ValueError):
+                own_folder = False
+            if own_folder:
+                resolved = _scan_media(dest)
 
     out = []
     for p in resolved:
@@ -5005,7 +5109,7 @@ async def retry_job(job_id: str):
     if row["status"] in ("running", "queued"):
         raise HTTPException(409, "This job is already running")
     db_run(
-        """UPDATE jobs SET status='queued', files_ok=0, files_skipped=0, files_error=0, files_json='[]',
+        """UPDATE jobs SET status='queued', files_ok=0, files_skipped=0, files_error=0, files_json='[]', skipped_json='[]',
                error_text='', hint='', current_file='', return_code=NULL,
                started_at=NULL, finished_at=NULL WHERE id=?""",
         (job_id,),

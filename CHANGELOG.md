@@ -40,9 +40,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - **History**: the Clear button follows the filter. Under Done it clears only the done jobs, under Error only the
   failed ones, and its question says how many.
 - **Browser mode for TikTok** (Advanced, Engine). TikTok sometimes answers the built-in downloader with HTTP 403.
-  With this on, TikTok links are downloaded by yt-dlp posing as a real browser, into tiktok/<user>/. It saves
-  videos only (no photo posts or avatars), keeps its own record so a Watch fetches only new posts, and respects the
-  proxy, speed limit, wait and retry settings. Off by default.
+  With this on, TikTok videos are downloaded by yt-dlp posing as a real browser, into tiktok/<user>/, while photo
+  posts and the profile picture still come from gallery-dl. The progress bar counts posts (3 of 40) and never goes
+  backwards, and the log lists each file as it downloads. It keeps its own record so a Watch fetches only new
+  posts, and respects the proxy, speed limit, wait and retry settings. Off by default.
 - Instagram is drawn in black and white instead of pink.
 - The tour has steps for the Library and Edit, and its text is up to date.
 - The Library has a **select mode**: press and hold a file, or drag a box over files, and every click then picks
@@ -100,6 +101,9 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 - Library: the highlight on a selected file in the first row or column was clipped at the edge, and dragging a
   box over files was jerky in big folders. It now does its work once per frame and keeps scrolling while you
   hold the pointer near an edge.
+- History showed pictures from other creators for a download that found everything already saved (for example a
+  profile whose posts sit in more than one creator folder). A download now remembers the files it skipped and
+  shows those. Older entries show nothing rather than someone else's pictures.
 - TikTok pages that fail with HTTP 403 (TikTok's bot protection, not a login problem) now say so, instead of
   telling you to set up cookies, and point to the new Browser mode for TikTok.
 - Pasted stream links named `index` no longer overwrite or get skipped as "already downloaded"; each link

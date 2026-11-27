@@ -355,10 +355,11 @@ def _out(live) -> Path:
     return Path(live.request("GET", "/api/settings")[1]["output_dir"])
 
 
-def _add_job(live, job_id, files, dest, ok=0, skipped=0):
+def _add_job(live, job_id, files, dest, ok=0, skipped=0, skipped_files=None):
     c = sqlite3.connect(str(live.data / "foldreel.db"))
-    c.execute("INSERT INTO jobs (id, url, status, files_ok, files_skipped, files_json, dest_dir) VALUES (?, ?, 'done', ?, ?, ?, ?)",
-              (job_id, "https://example.test/" + job_id, ok, skipped, json.dumps([str(f) for f in files]), str(dest)))
+    c.execute("INSERT INTO jobs (id, url, status, files_ok, files_skipped, files_json, skipped_json, dest_dir) VALUES (?, ?, 'done', ?, ?, ?, ?, ?)",
+              (job_id, "https://example.test/" + job_id, ok, skipped, json.dumps([str(f) for f in files]),
+               json.dumps([str(f) for f in (skipped_files or [])]), str(dest)))
     c.commit(); c.close()
 
 
@@ -382,13 +383,34 @@ def test_job_files_counts_only_files_that_exist(live):
 
 
 def test_job_files_shows_the_folder_when_everything_was_skipped(live):
-    folder = _out(live) / "watched"
-    folder.mkdir()
+    # an older job that recorded nothing: its own creator folder (site/creator) is shown
+    folder = _out(live) / "site" / "watched"
+    folder.mkdir(parents=True)
     for name in ("one.jpg", "two.mp4"):
         (folder / name).write_bytes(b"x")
     _add_job(live, "files-skipped", [], folder, ok=0, skipped=2)
     names = {f["name"] for f in live.request("GET", "/api/jobs/files-skipped/files")[1]["files"]}
     assert names == {"one.jpg", "two.mp4"}
+
+
+def test_job_files_shows_what_a_download_skipped_not_the_whole_site_folder(live):
+    # a profile whose posts sit in two creator folders: the job's folder is the site folder, which also
+    # holds strangers' newer pictures. History must show the files the job itself skipped.
+    site = _out(live) / "instagram"
+    mine, other, strangers = site / "asked_for", site / "collab", site / "someone_else"
+    for d in (mine, other, strangers):
+        d.mkdir(parents=True)
+    (mine / "a.jpg").write_bytes(b"x")
+    (other / "b.jpg").write_bytes(b"x")
+    time.sleep(0.05)
+    for i in range(3):
+        (strangers / f"new_{i}.jpg").write_bytes(b"x")  # newer than the files asked for
+    _add_job(live, "files-site-skip", [], site, ok=0, skipped=2, skipped_files=[mine / "a.jpg", other / "b.jpg"])
+    names = {f["name"] for f in live.request("GET", "/api/jobs/files-site-skip/files")[1]["files"]}
+    assert names == {"a.jpg", "b.jpg"}
+    # an older job with the same shape but nothing recorded shows nothing, never the strangers' pictures
+    _add_job(live, "files-site-old", [], site, ok=0, skipped=2)
+    assert live.request("GET", "/api/jobs/files-site-old/files")[1]["files"] == []
 
 
 def test_job_files_never_scans_the_shared_output_root(live):
@@ -980,3 +1002,15 @@ def test_tiktok_browser_mode_is_a_saved_setting(live):
     assert live.request("GET", "/api/settings")[1]["tiktok_impersonate"] == 1
     assert live.request("PUT", "/api/settings", {"tiktok_impersonate": 0})[0] == 200
     assert live.request("GET", "/api/settings")[1]["tiktok_impersonate"] == 0
+
+
+def test_tiktok_progress_lines_are_recognised():
+    sys.path.insert(0, str(BACKEND_DIR))
+    import importlib
+    os.environ.setdefault("FOLDREEL_DATA", str(Path(os.environ.get("TEMP", "/tmp")) / "foldreel-edit-unit"))
+    srv = importlib.import_module("server")
+    m = srv._YTDLP_ITEM.match("[download] Downloading item 3 of 141")
+    assert m and (m.group(1), m.group(2)) == ("3", "141")
+    d = srv._YTDLP_DEST.match(r"[download] Destination: D:\dl\tiktok\someone\7710 a title.mp4")
+    assert d and d.group(1).endswith("a title.mp4")
+    assert not srv._YTDLP_ITEM.match("[download] 100% of 4.20MiB in 00:00:01")

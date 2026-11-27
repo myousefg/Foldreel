@@ -832,7 +832,7 @@
     "resetDesc": "Puts every setting on this page back the way it came.",
     "resetDone": "Engine settings reset",
     "tiktok": "Browser mode for TikTok",
-    "tiktokDesc": "Turn on if TikTok downloads fail with HTTP 403. Saves videos only."
+    "tiktokDesc": "Turn on if TikTok downloads fail with HTTP 403."
   },
   "edit": {
     "empty": "Drop a photo, video or sound here",
